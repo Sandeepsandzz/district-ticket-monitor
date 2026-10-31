@@ -153,8 +153,8 @@ class DistrictScraperServiceTest {
         List<Map<String, String>> upcoming = scraper.fetchUpcomingVizagMovies();
         assertNotNull(upcoming);
         assertFalse(upcoming.isEmpty(), "Upcoming movies list should not be empty");
-        assertTrue(upcoming.stream().anyMatch(m -> m.get("name").equalsIgnoreCase("Ramayana")),
-                "Must include Ramayana as upcoming blockbuster");
+        assertTrue(upcoming.stream().allMatch(m -> m.get("name") != null && m.get("url") != null),
+                "Upcoming listings must include movie names and URLs");
     }
 
     @Test

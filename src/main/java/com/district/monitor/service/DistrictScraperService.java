@@ -127,15 +127,11 @@ public class DistrictScraperService {
                 String slug = vm.group(1);
                 String fullUrl = normalizeToVizagUrl(vm.group(0));
                 String formattedTitle = formatSlugToTitle(slug);
-                if (!isExcludedPlaceholder(formattedTitle) && !isUpcomingTitle(formattedTitle)) {
-                    if (!movieMap.containsKey(formattedTitle.toLowerCase())) {
-                        movieMap.put(formattedTitle.toLowerCase(), Map.of(
-                                "name", formattedTitle,
-                                "url", fullUrl,
-                                "slug", slug
-                        ));
-                    }
-                }
+                movieMap.putIfAbsent(formattedTitle.toLowerCase(Locale.ROOT), Map.of(
+                        "name", formattedTitle,
+                        "url", fullUrl,
+                        "slug", slug
+                ));
             }
 
             // 2. Parse JSON-LD ItemList schema for movies
@@ -148,15 +144,11 @@ public class DistrictScraperService {
                             String name = movieNode.path("name").asText().trim();
                             String url = normalizeToVizagUrl(movieNode.path("url").asText().trim());
                             if (!name.isEmpty() && !url.isEmpty() && !name.equalsIgnoreCase("Home") && !name.equalsIgnoreCase("Movies")) {
-                                if (!isExcludedPlaceholder(name) && !isUpcomingTitle(name)) {
-                                    if (!movieMap.containsKey(name.toLowerCase())) {
-                                        movieMap.put(name.toLowerCase(), Map.of(
-                                                "name", name,
-                                                "url", url,
-                                                "slug", name.toLowerCase().replaceAll("[^a-z0-9]+", "-")
-                                        ));
-                                    }
-                                }
+                                movieMap.putIfAbsent(name.toLowerCase(Locale.ROOT), Map.of(
+                                        "name", name,
+                                        "url", url,
+                                        "slug", name.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "-")
+                                ));
                             }
                         }
                     }
@@ -169,7 +161,6 @@ public class DistrictScraperService {
                 String id = mm.group(1);
                 String name = mm.group(2).trim();
                 long releaseEpoch = Long.parseLong(mm.group(3));
-                if (isExcludedPlaceholder(name) || isUpcomingTitle(name)) continue;
                 if (releaseEpoch > nowEpochSec + 86400) continue; // Future release date
                 String url = "https://www.district.in/movies/" + name.toLowerCase().replaceAll("[^a-z0-9]+", "-") + "-movie-tickets-in-vizag-MV" + id;
                 String key = name.toLowerCase();
@@ -191,32 +182,6 @@ public class DistrictScraperService {
         cachedVizagMovies = new ArrayList<>(movieMap.values());
         lastMoviesCacheTime = now;
         return cachedVizagMovies;
-    }
-
-    private boolean isExcludedPlaceholder(String name) {
-        if (name == null || name.isBlank()) return true;
-        String lower = name.toLowerCase();
-        return lower.contains("sense and sensibility")
-                || lower.contains("the influencer project")
-                || lower.contains("clayface")
-                || lower.contains("udta teer")
-                || lower.contains("doraemon")
-                || lower.contains("nakhrewaalii")
-                || lower.contains("prahaar")
-                || lower.contains("nayyi navelli")
-                || lower.contains("pyre")
-                || lower.contains("hanuman ansh");
-    }
-
-    private boolean isUpcomingTitle(String name) {
-        if (name == null || name.isBlank()) return false;
-        String lower = name.toLowerCase();
-        return lower.contains("ramayana")
-                || lower.contains("mirzapur")
-                || lower.contains("drishyam")
-                || lower.contains("spider-man")
-                || lower.contains("toy story")
-                || lower.contains("arirang");
     }
 
     /**
