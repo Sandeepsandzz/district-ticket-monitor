@@ -3,6 +3,7 @@ package com.district.monitor.dto;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Holds in-memory conversation state for the interactive Telegram Inline Keyboard wizard.
@@ -36,6 +37,7 @@ public class WizardSession {
     private List<String> screenOptions = new ArrayList<>();
     private List<String> movieOptions = new ArrayList<>();
     private List<String> movieUrls = new ArrayList<>();
+    private List<Map<String, String>> upcomingMovies = new ArrayList<>();
 
     public Step getStep() { return step; }
     public void setStep(Step step) { this.step = step; }
@@ -75,4 +77,6 @@ public class WizardSession {
     public void setMovieUrls(List<String> movieUrls) {
         this.movieUrls = movieUrls == null ? new ArrayList<>() : new ArrayList<>(movieUrls);
     }
+    public List<Map<String, String>> getUpcomingMovies() { return upcomingMovies; }
+    public void setUpcomingMovies(List<Map<String, String>> movies) { this.upcomingMovies = new ArrayList<>(movies); }
 }

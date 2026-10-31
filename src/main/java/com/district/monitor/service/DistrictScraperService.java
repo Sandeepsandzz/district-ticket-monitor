@@ -64,6 +64,8 @@ public class DistrictScraperService {
     // Cache of discovered movies in Vizag: title -> url
     private volatile List<Map<String, String>> cachedVizagMovies = new ArrayList<>();
     private volatile long lastMoviesCacheTime = 0;
+    private volatile List<Map<String, String>> cachedUpcomingMovies = List.of();
+    private volatile long lastUpcomingCacheTime;
     private volatile Instant lastSuccessAt;
     private volatile Instant lastFailureAt;
     private volatile int consecutiveFailures;
@@ -220,15 +222,34 @@ public class DistrictScraperService {
     /**
      * Curated and dynamic upcoming blockbusters list for Vizag.
      */
-    public List<Map<String, String>> fetchUpcomingVizagMovies() {
-        return List.of(
-                Map.of("name", "Ramayana", "url", "https://www.district.in/movies/namit-malhotra-s-ramayana-movie-tickets-in-vizag-MV176276"),
-                Map.of("name", "Mirzapur The Movie", "url", "https://www.district.in/movies/mirzapur-the-movie-movie-tickets-in-vizag-MV181196"),
-                Map.of("name", "Drishyam 3", "url", "https://www.district.in/movies/drishyam-the-conclusion-movie-tickets-in-vizag-MV207254"),
-                Map.of("name", "Spider-Man: Brand New Day", "url", "https://www.district.in/movies/spider-man-brand-new-day-movie-tickets-in-vizag-MV194537"),
-                Map.of("name", "BTS World Tour Arirang", "url", "https://www.district.in/movies/bts-world-tour-arirang-in-sao-paulo-live-viewing-movie-tickets-MV233822"),
-                Map.of("name", "Toy Story 5", "url", "https://www.district.in/movies/toy-story-5-movie-tickets-in-vizag-MV178238")
-        );
+    public synchronized List<Map<String, String>> fetchUpcomingVizagMovies() {
+        long now = System.currentTimeMillis();
+        if (now - lastUpcomingCacheTime < 300_000) return cachedUpcomingMovies;
+        try {
+            Document doc = fetchDocument("https://www.district.in/movies/upcoming-movies", 15_000, "upcoming catalogue");
+            List<Map<String, String>> movies = parseUpcomingMovies(doc);
+            if (!movies.isEmpty()) cachedUpcomingMovies = movies;
+            lastUpcomingCacheTime = now;
+        } catch (IOException e) {
+            log.warn("Could not fetch upcoming movies: {}", e.getMessage());
+            lastUpcomingCacheTime = now;
+        }
+        return cachedUpcomingMovies;
+    }
+
+    public List<Map<String, String>> parseUpcomingMovies(Document doc) {
+        Map<String, Map<String, String>> movies = new LinkedHashMap<>();
+        for (Element link : doc.select("a[href*=-movie-tickets-MV]")) {
+            Element heading = link.selectFirst("h5");
+            if (heading == null || heading.text().isBlank()) continue;
+            String href = link.absUrl("href");
+            if (href.isBlank() && link.attr("href").startsWith("/movies/")) href = "https://www.district.in" + link.attr("href");
+            if (!isAllowedMoviePageUrl(href) || !href.matches("https://www\\.district\\.in/movies/[^?#]+-movie-tickets-MV\\d+")) continue;
+            Element date = link.selectFirst("span");
+            movies.putIfAbsent(href, Map.of("name", heading.text(), "url", normalizeToVizagUrl(href),
+                    "releaseDate", date == null ? "Coming soon" : date.text()));
+        }
+        return List.copyOf(movies.values());
     }
 
     /**
@@ -510,6 +531,7 @@ public class DistrictScraperService {
 
     private List<ScreeningRecord> extractScreeningsFromPage(Document doc, String rawHtml, String fallbackTitle, String fallbackDate) {
         List<ScreeningRecord> screenings = new ArrayList<>();
+        boolean hasNativeSessions = false;
 
         // Strategy 1: Parse District's native Next.js state via __NEXT_DATA__
         Element nextDataEl = doc.selectFirst("script#__NEXT_DATA__");
@@ -527,6 +549,7 @@ public class DistrictScraperService {
                         nextData.path("props").path("pageProps").path("data").path("movieSessions")
                 );
                 for (JsonNode sessionRoot : sessionRoots) {
+                    if (sessionRoot.isContainerNode() && !sessionRoot.isEmpty()) hasNativeSessions = true;
                     collectMovieSessions(sessionRoot, screenings, fallbackTitle, fallbackDate);
                     if (!screenings.isEmpty()) break;
                 }
@@ -536,7 +559,7 @@ public class DistrictScraperService {
         }
 
         // Strategy 2: Fallback to regex-based HTML session extraction
-        if (screenings.isEmpty()) {
+        if (screenings.isEmpty() && !hasNativeSessions) {
             Matcher sm = SESSION_PATTERN.matcher(rawHtml);
             while (sm.find()) {
                 String cinema = sm.group(1).trim();
@@ -624,6 +647,7 @@ public class DistrictScraperService {
         if (!sessions.isArray()) return;
 
         for (JsonNode session : sessions) {
+            if (session.path("disableClick").asBoolean(false) || (session.hasNonNull("avail") && session.path("avail").asInt() <= 0)) continue;
             String showTimeRaw = firstText(session, "showTime", "showtime", "startTime", "start_time", "dateTime");
             String audiRaw = firstText(session, "audi", "screenName", "screen", "screen_name");
             String premiumLabel = firstText(session, "premiumLabel", "premium", "seatType");
@@ -684,7 +708,7 @@ public class DistrictScraperService {
                 istTime = OffsetDateTime.parse(showTimeRaw).atZoneSameInstant(IST_ZONE);
             } else {
                 LocalDateTime ldt = LocalDateTime.parse(showTimeRaw);
-                istTime = ldt.atZone(IST_ZONE);
+                istTime = ldt.atZone(ZoneOffset.UTC).withZoneSameInstant(IST_ZONE);
             }
             String dateStr = istTime.format(DateTimeFormatter.ISO_LOCAL_DATE);
             String timeStr = istTime.format(DateTimeFormatter.ofPattern("hh:mm a", Locale.ENGLISH));
@@ -799,7 +823,12 @@ public class DistrictScraperService {
         if (record.audi() == null || record.audi().isBlank()) {
             return false;
         }
-        return normalizeScreenName(screenFilter).equals(normalizeScreenName(record.audi()));
+        String left = normalizeScreenName(screenFilter);
+        String right = normalizeScreenName(record.audi());
+        if (left.equals(right)) return true;
+        Matcher requested = Pattern.compile("^(?:screen|audi)0*(\\d+)").matcher(left);
+        Matcher actual = Pattern.compile("^(?:screen|audi)0*(\\d+)").matcher(right);
+        return requested.find() && actual.find() && requested.group(1).equals(actual.group(1));
     }
 
     private String normalizeScreenName(String value) {

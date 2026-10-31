@@ -280,6 +280,7 @@ public class TelegramCommandService {
         session.setMovieOptions(movieOptions);
         session.setMovieUrls(movieUrls);
 
+        keyboard.add(List.of(Map.of("text", "🚀 Browse Upcoming Movies", "callback_data", "wiz_upcoming:0")));
         keyboard.add(List.of(
                 Map.of("text", "✍️ Type Any Movie Name", "callback_data", "wiz_movie:__custom__")
         ));
@@ -290,10 +291,34 @@ public class TelegramCommandService {
         telegramService.sendWithInlineKeyboard(chatId, msg, keyboard);
     }
 
+    private void promptUpcomingMovies(String chatId, WizardSession session, int page) {
+        if (session.getUpcomingMovies().isEmpty()) session.setUpcomingMovies(scraperService.fetchUpcomingVizagMovies());
+        List<Map<String, String>> movies = session.getUpcomingMovies();
+        if (movies.isEmpty()) {
+            telegramService.sendMessage(chatId, "⚠️ District's upcoming movie list is unavailable. Please try again later.");
+            return;
+        }
+        int pages = (movies.size() + 9) / 10;
+        if (page < 0 || page >= pages) return;
+        List<List<Map<String, Object>>> keyboard = new ArrayList<>();
+        for (int i = page * 10; i < Math.min(movies.size(), (page + 1) * 10); i++) {
+            Map<String, String> movie = movies.get(i);
+            keyboard.add(List.of(Map.of("text", movie.get("name") + " · " + movie.get("releaseDate"),
+                    "callback_data", "wiz_upmovie:" + i)));
+        }
+        List<Map<String, Object>> navigation = new ArrayList<>();
+        if (page > 0) navigation.add(Map.of("text", "⬅ Previous", "callback_data", "wiz_upcoming:" + (page - 1)));
+        if (page + 1 < pages) navigation.add(Map.of("text", "Next ➡", "callback_data", "wiz_upcoming:" + (page + 1)));
+        if (!navigation.isEmpty()) keyboard.add(navigation);
+        keyboard.add(List.of(Map.of("text", "❌ Cancel", "callback_data", "menu:cancel")));
+        telegramService.sendWithInlineKeyboard(chatId, "🚀 <b>Upcoming movies</b> (" + (page + 1) + "/" + pages + ")\n\nDistrict's nationwide list; Vizag screenings are not guaranteed.", keyboard);
+    }
+
     private void promptForTheatreSelection(String chatId, WizardSession session) {
         session.setStep(Step.AWAITING_THEATRE_CHOICE);
         List<String> theatres = scraperService.getAvailableTheatresForMovie(session.getMovieUrl());
-        if (theatres.isEmpty()) {
+        boolean usingFallback = theatres.isEmpty();
+        if (usingFallback) {
             theatres = scraperService.getKnownVizagTheatres();
         }
         session.setTheatreOptions(theatres);
@@ -302,8 +327,10 @@ public class TelegramCommandService {
                 🏛 <b>Step 2/4: Select Theatre</b>
                 Movie: <b>%s</b>
 
-                These are the theatres currently associated with this movie in Vizag. Select exactly one theatre to monitor.
-                """.formatted(escapeHtml(session.getMovieName()));
+                %s
+                """.formatted(escapeHtml(session.getMovieName()), usingFallback
+                ? "District has not supplied theatres for this movie yet. Choose a suggested theatre or enter its name."
+                : "Select one theatre to monitor.");
 
         List<List<Map<String, Object>>> keyboard = new ArrayList<>();
         List<Map<String, Object>> row = new ArrayList<>();
@@ -337,7 +364,10 @@ public class TelegramCommandService {
         List<String> theatreScreens = getScreensForTheatre(session.getTheatreName());
         LinkedHashSet<String> mergedScreens = new LinkedHashSet<>();
         mergedScreens.addAll(liveScreens);
-        if (mergedScreens.isEmpty()) mergedScreens.addAll(theatreScreens);
+        if (mergedScreens.isEmpty()) {
+            mergedScreens.addAll(theatreScreens);
+            msg += "\nSuggested screens are not verified by District; you can also enter one manually.";
+        }
         session.setScreenOptions(new ArrayList<>(mergedScreens));
         List<Map<String, Object>> row = new ArrayList<>();
         int index = 0;
@@ -598,6 +628,20 @@ public class TelegramCommandService {
                     List.of(Map.of("text", "➕ Create New Alert", "callback_data", "menu:new"))
             );
             telegramService.sendWithInlineKeyboard(chatId, "🗑 <b>All watches deleted!</b>", kb);
+        } else if (data.startsWith("wiz_upcoming:")) {
+            WizardSession session = sessions.get(chatId);
+            if (session == null) { telegramService.sendMessage(chatId, "⚠️ This menu expired. Use /new to start again."); return; }
+            promptUpcomingMovies(chatId, session, Integer.parseInt(data.substring("wiz_upcoming:".length())));
+        } else if (data.startsWith("wiz_upmovie:")) {
+            WizardSession session = sessions.get(chatId);
+            int index = Integer.parseInt(data.substring("wiz_upmovie:".length()));
+            if (session == null || index < 0 || index >= session.getUpcomingMovies().size()) {
+                telegramService.sendMessage(chatId, "⚠️ This menu expired. Use /new to start again."); return;
+            }
+            Map<String, String> movie = session.getUpcomingMovies().get(index);
+            session.setMovieName(movie.get("name"));
+            session.setMovieUrl(movie.get("url"));
+            promptForTheatreSelection(chatId, session);
         } else if (data.startsWith("wiz_movie_idx:")) {
             WizardSession session = sessions.computeIfAbsent(chatId, k -> new WizardSession());
             int index = Integer.parseInt(data.substring("wiz_movie_idx:".length()));

@@ -8,6 +8,7 @@ A cloud-ready **Java 21 + Spring Boot 3.3** microservice integrated with an **In
 2. **100% Button-Driven Interactive Telegram UI**:
    - Tap `/start` or `/menu` in Telegram to launch the inline keyboard wizard.
    - **Movie Selection Buttons**: Dynamically loads real, current Vizag movies directly from District (`Jailer 2`, `Ramayana`, `Cult`, `Ranabaali`, `Killer`, etc.).
+   - **Upcoming movies**: Browse District's paginated nationwide upcoming releases, then choose a Vizag theatre, screen, and date to watch for ticket sales. A listing does not guarantee that the movie will screen in Vizag. Where District has not published theatres or screens yet, suggestions are unverified.
    - **Vizag Theatre Buttons**: The selected movie's theatres are loaded from District, with a Vizag cinema roster fallback when bookings have not opened yet.
    - **Exact watch wizard**: Choose `Released Movie → Vizag Theatre → Screen → Date`.
    - **Cancel Button**: Available on every step so you never get stuck.

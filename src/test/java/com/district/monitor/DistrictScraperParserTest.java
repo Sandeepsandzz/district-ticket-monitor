@@ -21,7 +21,7 @@ class DistrictScraperParserTest {
                   "props": {"pageProps": {"data": {"serverState": {"movieSessions": {
                     "2ar4887i5ss": {"pageData": {"nearbyCinemas": [
                       {"cinemaInfo": {"name": "AAA Cinemas, Vizag"}, "sessions": [
-                        {"showTime": "2026-11-01T10:05:00", "audi": "Screen 7", "premiumLabel": "Q-Luxon LED",
+                        {"showTime": "2026-11-01T04:35:00", "audi": "Screen 7", "premiumLabel": "Q-Luxon LED",
                          "scrnFmt": "2D", "language": "Telugu", "encSessionId": "session-1", "mcd": "movie-code",
                          "avail": 152, "price": 180}
                       ]}
@@ -50,5 +50,19 @@ class DistrictScraperParserTest {
         assertTrue(record.audi().contains("Luxon"));
         assertEquals(152, record.availableSeats());
         assertEquals("180", record.price().toPlainString());
+    }
+
+    @Test
+    void readsUpcomingMovieCardsAndPreservesDistrictMovieId() {
+        Document doc = Jsoup.parse("""
+                <a href="/movies/example-movie-tickets-MV123"><div><h5>Example: Part 2</h5><span>December 18, 2026</span></div></a>
+                <a href="/movies/example-movie-tickets-MV123"><h5>Example: Part 2</h5></a>
+                <a href="https://evil.example/movies/bad-movie-tickets-MV999"><h5>Bad</h5></a>
+                """, "https://www.district.in/movies/upcoming-movies");
+        var movies = new DistrictScraperService("https://www.district.in/movies").parseUpcomingMovies(doc);
+        assertEquals(1, movies.size());
+        assertEquals("Example: Part 2", movies.get(0).get("name"));
+        assertEquals("December 18, 2026", movies.get(0).get("releaseDate"));
+        assertEquals("https://www.district.in/movies/example-movie-tickets-in-vizag-MV123", movies.get(0).get("url"));
     }
 }
