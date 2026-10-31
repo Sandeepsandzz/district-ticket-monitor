@@ -1,0 +1,57 @@
+server:
+  port: ${PORT:8082}
+
+spring:
+  application:
+    name: district-ticket-monitor
+  datasource:
+    url: "jdbc:h2:file:${DATA_DIR:./data}/district_watches_v3;AUTO_SERVER=TRUE"
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+  h2:
+    console:
+      enabled: ${H2_CONSOLE_ENABLED:false}
+      path: /h2-console
+  mail:
+    host: ${SMTP_HOST:smtp.gmail.com}
+    port: ${SMTP_PORT:587}
+    username: ${SMTP_USERNAME:}
+    password: ${SMTP_PASSWORD:}
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: true
+
+district:
+  base-url: https://www.district.in/movies
+  # Poll District every 2 minutes (120,000 ms) by default
+  poll-interval-ms: ${POLL_INTERVAL_MS:120000}
+
+telegram:
+  bot-token: 9110164256:AAHbhsoLpEKQTjJyrWfesjNyRf6pC4A-Plc
+  webhook-secret: ${TELEGRAM_WEBHOOK_SECRET:}
+  # True for local IDE testing (uses getUpdates without needing ngrok/HTTPS)
+  polling-enabled: ${TELEGRAM_POLLING_ENABLED:true}
+  polling-interval-ms: 2500
+
+api:
+  admin-token: ${API_ADMIN_TOKEN:}
+
+notifications:
+  # Persistent alert settings: re-notify until user clicks "Acknowledge & Stop" in Telegram
+  persistent:
+    repeat-interval-minutes: ${REPEAT_ALERT_MINS:3}
+    max-alerts-per-watch: ${MAX_ALERTS_PER_WATCH:15}
+  # Optional Multi-Channel Webhook (Discord, Slack, ntfy.sh, custom WhatsApp/Push gateway)
+  webhook:
+    enabled: ${WEBHOOK_NOTIFY_ENABLED:false}
+    url: ${WEBHOOK_NOTIFY_URL:}
+  # Optional Email Notification Channel
+  email:
+    enabled: ${EMAIL_NOTIFY_ENABLED:false}
+    to: ${EMAIL_NOTIFY_TO:}
+    from: ${EMAIL_NOTIFY_FROM:noreply@districtmonitor.local}
