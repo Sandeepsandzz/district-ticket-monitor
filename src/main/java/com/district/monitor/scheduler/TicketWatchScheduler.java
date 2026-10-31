@@ -120,9 +120,7 @@ public class TicketWatchScheduler {
                         🏛 <b>Theatres:</b> %s
                         🖥 <b>Screen:</b> %s
                         🕒 <b>Showtimes:</b> %s
-                        📅 <b>Date Filter:</b> %s
-                        🗣 <b>Language:</b> %s | 🎞 <b>Format:</b> %s
-                        💰 <b>Price:</b> %s | 💺 <b>Seats:</b> %s
+                        📅 <b>Date:</b> %s
 
                         <i>Tap <b>Acknowledge &amp; Stop Alerts</b> below once you've seen this!</i>
                         """.formatted(
@@ -133,18 +131,12 @@ public class TicketWatchScheduler {
                         escapeHtml(theatresStr),
                         escapeHtml(screensStr),
                         escapeHtml(showtimesStr),
-                        escapeHtml(rule.getTargetDate()),
-                        escapeHtml(rule.getLanguageFilter()),
-                        escapeHtml(rule.getFormatFilter()),
-                        escapeHtml(rule.getMaxPrice() == null ? "Any" : "≤₹" + rule.getMaxPrice().stripTrailingZeros().toPlainString()),
-                        escapeHtml(rule.getMinAvailableSeats() <= 0 ? "Any" : "≥" + rule.getMinAvailableSeats())
+                        escapeHtml(rule.getTargetDate())
                 );
 
-                String plainMsg = "TICKETS AVAILABLE: %s in %s | Theatres: %s | Screen: %s | Showtimes: %s | Date: %s | Lang: %s | Format: %s | Price: %s | Seats: %s"
+                String plainMsg = "TICKETS AVAILABLE: %s in %s | Theatre: %s | Screen: %s | Showtimes: %s | Date: %s"
                         .formatted(rule.getMovieName(), rule.getCity().toUpperCase(), theatresStr, screensStr, showtimesStr,
-                                rule.getTargetDate(), rule.getLanguageFilter(), rule.getFormatFilter(),
-                                rule.getMaxPrice() == null ? "Any" : "≤₹" + rule.getMaxPrice().stripTrailingZeros().toPlainString(),
-                                rule.getMinAvailableSeats() <= 0 ? "Any" : "≥" + rule.getMinAvailableSeats());
+                                rule.getTargetDate());
 
                 notificationDispatcher.dispatchAlert(rule, htmlMsg, plainMsg, result.bookingUrl());
 

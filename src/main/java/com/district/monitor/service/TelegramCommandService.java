@@ -9,9 +9,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
-import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
@@ -241,67 +241,44 @@ public class TelegramCommandService {
         session.setCity("vizag");
         sessions.put(chatId, session);
 
-        // Fetch both Now Showing and Upcoming movies
+        // Only show movies currently listed as released/now-showing in Vizag.
         List<Map<String, String>> nowShowing = scraperService.fetchCurrentVizagMovies();
-        List<Map<String, String>> upcoming = scraperService.fetchUpcomingVizagMovies();
-
-        Set<String> seenMovies = new HashSet<>();
 
         String msg = """
-                🎬 <b>Step 1/8: Select Movie in Vizag</b>
+                🎬 <b>Step 1/4: Select a Released Movie</b>
                 📍 City: <b>VISAKHAPATNAM (VIZAG)</b>
 
-                Choose from <b>Now Showing</b> (🎥) or <b>Upcoming Releases</b> (🚀) below:
+                Select the movie you want to monitor. We will then load its Vizag theatres and screens.
                 """;
 
         List<List<Map<String, Object>>> keyboard = new ArrayList<>();
+        List<String> movieOptions = new ArrayList<>();
+        List<String> movieUrls = new ArrayList<>();
 
-        // 1. Now Showing Movies in Vizag
         if (!nowShowing.isEmpty()) {
             keyboard.add(List.of(
-                    Map.of("text", "── 🎥 NOW SHOWING IN VIZAG ──", "callback_data", "noop")
+                    Map.of("text", "── 🎥 CURRENTLY RELEASED IN VIZAG ──", "callback_data", "noop")
             ));
             List<Map<String, Object>> nsRow = new ArrayList<>();
-            int nsCount = 0;
             for (Map<String, String> m : nowShowing) {
                 String name = m.get("name");
                 if (name == null || name.isBlank()) continue;
-                seenMovies.add(name.toLowerCase());
-                nsRow.add(Map.of("text", "🎥 " + name, "callback_data", "wiz_movie:" + name));
-                nsCount++;
+                int index = movieOptions.size();
+                movieOptions.add(name);
+                movieUrls.add(scraperService.normalizeToVizagUrl(m.get("url")));
+                nsRow.add(Map.of("text", "🎥 " + name, "callback_data", "wiz_movie_idx:" + index));
                 if (nsRow.size() == 2) {
                     keyboard.add(nsRow);
                     nsRow = new ArrayList<>();
                 }
-                if (nsCount >= 6) break;
             }
             if (!nsRow.isEmpty()) {
                 keyboard.add(nsRow);
             }
         }
 
-        // 2. Upcoming Releases for Vizag
-        if (!upcoming.isEmpty()) {
-            keyboard.add(List.of(
-                    Map.of("text", "── 🚀 UPCOMING RELEASES ──", "callback_data", "noop")
-            ));
-            List<Map<String, Object>> upRow = new ArrayList<>();
-            int upCount = 0;
-            for (Map<String, String> m : upcoming) {
-                String name = m.get("name");
-                if (name == null || name.isBlank() || seenMovies.contains(name.toLowerCase())) continue;
-                upRow.add(Map.of("text", "🚀 " + name, "callback_data", "wiz_movie:" + name));
-                upCount++;
-                if (upRow.size() == 2) {
-                    keyboard.add(upRow);
-                    upRow = new ArrayList<>();
-                }
-                if (upCount >= 6) break;
-            }
-            if (!upRow.isEmpty()) {
-                keyboard.add(upRow);
-            }
-        }
+        session.setMovieOptions(movieOptions);
+        session.setMovieUrls(movieUrls);
 
         keyboard.add(List.of(
                 Map.of("text", "✍️ Type Any Movie Name", "callback_data", "wiz_movie:__custom__")
@@ -315,43 +292,31 @@ public class TelegramCommandService {
 
     private void promptForTheatreSelection(String chatId, WizardSession session) {
         session.setStep(Step.AWAITING_THEATRE_CHOICE);
+        List<String> theatres = scraperService.getAvailableTheatresForMovie(session.getMovieUrl());
+        if (theatres.isEmpty()) {
+            theatres = scraperService.getKnownVizagTheatres();
+        }
+        session.setTheatreOptions(theatres);
+
         String msg = """
-                🏛 <b>Step 2/8: Select Theatre Preference</b>
+                🏛 <b>Step 2/4: Select Theatre</b>
                 Movie: <b>%s</b>
 
-                💡 <b>For Upcoming Releases:</b> Choose <b>All Theatres in Vizag</b> so as soon as ANY cinema releases tickets, you are alerted immediately!
+                These are the theatres currently associated with this movie in Vizag. Select exactly one theatre to monitor.
                 """.formatted(escapeHtml(session.getMovieName()));
 
-        List<List<Map<String, Object>>> keyboard = List.of(
-                List.of(
-                        Map.of("text", "⚡ 1-Click: ALL Theatres & Screens (First Release)", "callback_data", "wiz_quick_all")
-                ),
-                List.of(
-                        Map.of("text", "🌐 All Theatres in Vizag (Recommended)", "callback_data", "wiz_theatre:ANY")
-                ),
-                List.of(
-                        Map.of("text", "🍿 INOX Varun Beach", "callback_data", "wiz_theatre:Varun Beach"),
-                        Map.of("text", "🍿 AAA Cinemas", "callback_data", "wiz_theatre:AAA Cinemas")
-                ),
-                List.of(
-                        Map.of("text", "🍿 INOX CMR Central", "callback_data", "wiz_theatre:CMR Central"),
-                        Map.of("text", "🍿 Cinepolis Sreekanya", "callback_data", "wiz_theatre:Sreekanya")
-                ),
-                List.of(
-                        Map.of("text", "🍿 INOX Chitralayaa", "callback_data", "wiz_theatre:Chitralayaa"),
-                        Map.of("text", "🍿 Kameswari / Kinnera", "callback_data", "wiz_theatre:Kameswari")
-                ),
-                List.of(
-                        Map.of("text", "🍿 Asian Mukta (Gajuwaka)", "callback_data", "wiz_theatre:Asian Mukta"),
-                        Map.of("text", "🍿 Jagadamba / Sarat", "callback_data", "wiz_theatre:Jagadamba")
-                ),
-                List.of(
-                        Map.of("text", "✍️ Type Custom Theatre", "callback_data", "wiz_theatre:__custom__")
-                ),
-                List.of(
-                        Map.of("text", "❌ Cancel", "callback_data", "menu:cancel")
-                )
-        );
+        List<List<Map<String, Object>>> keyboard = new ArrayList<>();
+        List<Map<String, Object>> row = new ArrayList<>();
+        for (int index = 0; index < theatres.size(); index++) {
+            row.add(Map.of("text", "🍿 " + theatres.get(index), "callback_data", "wiz_theatre_idx:" + index));
+            if (row.size() == 2) {
+                keyboard.add(row);
+                row = new ArrayList<>();
+            }
+        }
+        if (!row.isEmpty()) keyboard.add(row);
+        keyboard.add(List.of(Map.of("text", "✍️ Type Custom Theatre", "callback_data", "wiz_theatre:__custom__")));
+        keyboard.add(List.of(Map.of("text", "❌ Cancel", "callback_data", "menu:cancel")));
         telegramService.sendWithInlineKeyboard(chatId, msg, keyboard);
     }
 
@@ -361,62 +326,29 @@ public class TelegramCommandService {
                 ? "Any Theatre in Vizag" : session.getTheatreName();
 
         String msg = """
-                🖥 <b>Step 3/8: Select Screen Filter</b>
+                🖥 <b>Step 3/4: Select Screen</b>
                 Movie: <b>%s</b> | Theatre: <b>%s</b>
 
-                Choose which screen you want to monitor, or pick Any Screen:
+                Select exactly one screen to monitor for this theatre.
                 """.formatted(escapeHtml(session.getMovieName()), escapeHtml(theatreLabel));
 
         List<List<Map<String, Object>>> keyboard = new ArrayList<>();
-
-        // 1. Always provide 'Any Screen' option first
-        String anyScreenText = (session.getTheatreName() == null || session.getTheatreName().isBlank())
-                ? "🌐 Any Screen (Recommended for Upcoming)" : "🌐 Any Screen in Theatre";
-        keyboard.add(List.of(
-                Map.of("text", anyScreenText, "callback_data", "wiz_screen:ANY")
-        ));
-
-        // 2. Fetch live screens currently open on District for this theatre
-        List<String> liveScreens = Collections.emptyList();
-        if (session.getTheatreName() != null && !session.getTheatreName().isBlank()) {
-            try {
-                liveScreens = scraperService.getAvailableScreensForTheatre(session.getMovieUrl(), session.getTheatreName());
-            } catch (Exception ignored) {}
-        }
-
-        // 3. Get all screens belonging to this theatre (e.g. AAA Cinemas has Screen 1 to Screen 7)
+        List<String> liveScreens = scraperService.getAvailableScreensForTheatre(session.getMovieUrl(), session.getTheatreName());
         List<String> theatreScreens = getScreensForTheatre(session.getTheatreName());
-
+        LinkedHashSet<String> mergedScreens = new LinkedHashSet<>();
+        mergedScreens.addAll(liveScreens);
+        if (mergedScreens.isEmpty()) mergedScreens.addAll(theatreScreens);
+        session.setScreenOptions(new ArrayList<>(mergedScreens));
         List<Map<String, Object>> row = new ArrayList<>();
-        for (String scr : theatreScreens) {
-            boolean live = isScreenLive(scr, liveScreens);
-            String btnText = live ? ("🟢 " + scr + " (Open Now)") : ("🖥 " + scr);
-            row.add(Map.of("text", btnText, "callback_data", "wiz_screen:" + scr));
+        int index = 0;
+        for (String screen : mergedScreens) {
+            row.add(Map.of("text", "🖥 " + screen, "callback_data", "wiz_screen_idx:" + index++));
             if (row.size() == 2) {
                 keyboard.add(row);
                 row = new ArrayList<>();
             }
         }
-        if (!row.isEmpty()) {
-            keyboard.add(row);
-        }
-
-        // 4. Also add any extra live screens discovered on District that aren't in standard roster (e.g. IMAX, EPIQ)
-        List<Map<String, Object>> extraRow = new ArrayList<>();
-        for (String liveScr : liveScreens) {
-            if (!isScreenLive(liveScr, theatreScreens)) {
-                extraRow.add(Map.of("text", "🟢 " + liveScr + " (Open Now)", "callback_data", "wiz_screen:" + liveScr));
-                if (extraRow.size() == 2) {
-                    keyboard.add(extraRow);
-                    extraRow = new ArrayList<>();
-                }
-            }
-        }
-        if (!extraRow.isEmpty()) {
-            keyboard.add(extraRow);
-        }
-
-        // 5. Custom screen option & cancel
+        if (!row.isEmpty()) keyboard.add(row);
         keyboard.add(List.of(
                 Map.of("text", "✍️ Type Custom Screen / Audi", "callback_data", "wiz_screen:__custom__")
         ));
@@ -475,7 +407,7 @@ public class TelegramCommandService {
 
     private void promptForDateSelection(String chatId, WizardSession session) {
         session.setStep(Step.AWAITING_DATE_CHOICE);
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(ZoneId.of("Asia/Kolkata"));
         DateTimeFormatter iso = DateTimeFormatter.ISO_LOCAL_DATE;
         DateTimeFormatter labelFmt = DateTimeFormatter.ofPattern("dd MMM (EEE)");
 
@@ -490,14 +422,11 @@ public class TelegramCommandService {
                 ? "Any Screen" : session.getScreenFilter();
 
         String msg = """
-                📅 <b>Step 4/8: Select Date Filter</b>
+                📅 <b>Step 4/4: Select Date</b>
                 Movie: <b>%s</b> | Theatre: <b>%s</b> | Screen: <b>%s</b>
                 """.formatted(escapeHtml(session.getMovieName()), escapeHtml(theatreLabel), escapeHtml(screenLabel));
 
         List<List<Map<String, Object>>> keyboard = List.of(
-                List.of(
-                        Map.of("text", "📆 Any Date / Release Date (Recommended for Upcoming)", "callback_data", "wiz_date:ANY")
-                ),
                 List.of(
                         Map.of("text", "📅 Today (" + today.format(labelFmt) + ")", "callback_data", "wiz_date:" + d0),
                         Map.of("text", "📅 Tomorrow (" + today.plusDays(1).format(labelFmt) + ")", "callback_data", "wiz_date:" + d1)
@@ -516,110 +445,14 @@ public class TelegramCommandService {
         telegramService.sendWithInlineKeyboard(chatId, msg, keyboard);
     }
 
-    private void promptForLanguageSelection(String chatId, WizardSession session) {
-        session.setStep(Step.AWAITING_LANGUAGE_CHOICE);
-        String screenLabel = (session.getScreenFilter() == null || session.getScreenFilter().equalsIgnoreCase("ANY"))
-                ? "Any Screen" : session.getScreenFilter();
-
-        String msg = """
-                🗣 <b>Step 5/8: Select Language Filter</b>
-                Movie: <b>%s</b> | Date: <b>%s</b> | Screen: <b>%s</b>
-                """.formatted(escapeHtml(session.getMovieName()), escapeHtml(session.getTargetDate()), escapeHtml(screenLabel));
-
-        List<List<Map<String, Object>>> keyboard = List.of(
-                List.of(
-                        Map.of("text", "🌐 Any Language", "callback_data", "wiz_lang:ANY")
-                ),
-                List.of(
-                        Map.of("text", "🗣 Telugu", "callback_data", "wiz_lang:Telugu"),
-                        Map.of("text", "🗣 Hindi", "callback_data", "wiz_lang:Hindi")
-                ),
-                List.of(
-                        Map.of("text", "🗣 English", "callback_data", "wiz_lang:English"),
-                        Map.of("text", "🗣 Tamil", "callback_data", "wiz_lang:Tamil")
-                ),
-                List.of(
-                        Map.of("text", "❌ Cancel", "callback_data", "menu:cancel")
-                )
-        );
-        telegramService.sendWithInlineKeyboard(chatId, msg, keyboard);
-    }
-
-    private void promptForFormatSelection(String chatId, WizardSession session) {
-        session.setStep(Step.AWAITING_FORMAT_CHOICE);
-        String msg = """
-                🎞 <b>Step 6/8: Select Screen Format</b>
-                Movie: <b>%s</b> | Language: <b>%s</b>
-                """.formatted(escapeHtml(session.getMovieName()), escapeHtml(session.getLanguageFilter()));
-
-        List<List<Map<String, Object>>> keyboard = List.of(
-                List.of(
-                        Map.of("text", "🎞 Any Format", "callback_data", "wiz_fmt:ANY")
-                ),
-                List.of(
-                        Map.of("text", "🎬 2D", "callback_data", "wiz_fmt:2D"),
-                        Map.of("text", "🕶 3D", "callback_data", "wiz_fmt:3D")
-                ),
-                List.of(
-                        Map.of("text", "👓 IMAX", "callback_data", "wiz_fmt:IMAX"),
-                        Map.of("text", "🔊 Dolby Atmos", "callback_data", "wiz_fmt:Dolby")
-                ),
-                List.of(
-                        Map.of("text", "❌ Cancel", "callback_data", "menu:cancel")
-                )
-        );
-        telegramService.sendWithInlineKeyboard(chatId, msg, keyboard);
-    }
-
-    private void promptForPriceSelection(String chatId, WizardSession session) {
-        session.setStep(Step.AWAITING_PRICE_CHOICE);
-        String msg = """
-                💰 <b>Step 7/8: Maximum Ticket Price</b>
-                Movie: <b>%s</b> | Format: <b>%s</b>
-
-                Choose a maximum ticket price. If District does not publish a price for a show, it will not match a price-limited watch.
-                """.formatted(escapeHtml(session.getMovieName()), escapeHtml(session.getFormatFilter()));
-        List<List<Map<String, Object>>> keyboard = List.of(
-                List.of(Map.of("text", "💰 Any Price", "callback_data", "wiz_price:ANY")),
-                List.of(Map.of("text", "₹150 or less", "callback_data", "wiz_price:150"), Map.of("text", "₹250 or less", "callback_data", "wiz_price:250")),
-                List.of(Map.of("text", "₹400 or less", "callback_data", "wiz_price:400"), Map.of("text", "₹600 or less", "callback_data", "wiz_price:600")),
-                List.of(Map.of("text", "✍️ Type Maximum Price", "callback_data", "wiz_price:__custom__")),
-                List.of(Map.of("text", "❌ Cancel", "callback_data", "menu:cancel"))
-        );
-        telegramService.sendWithInlineKeyboard(chatId, msg, keyboard);
-    }
-
-    private void promptForSeatSelection(String chatId, WizardSession session) {
-        session.setStep(Step.AWAITING_SEATS_CHOICE);
-        String priceLabel = session.getMaxPrice() == null ? "Any Price" : "₹" + session.getMaxPrice().stripTrailingZeros().toPlainString() + " max";
-        String msg = """
-                💺 <b>Step 8/8: Minimum Available Seats</b>
-                Movie: <b>%s</b> | Price: <b>%s</b>
-
-                Choose the minimum number of seats that must be available. If seat counts are unavailable, it will not match a seat-limited watch.
-                """.formatted(escapeHtml(session.getMovieName()), escapeHtml(priceLabel));
-        List<List<Map<String, Object>>> keyboard = List.of(
-                List.of(Map.of("text", "💺 Any Availability", "callback_data", "wiz_seats:0")),
-                List.of(Map.of("text", "At least 1 seat", "callback_data", "wiz_seats:1"), Map.of("text", "At least 2 seats", "callback_data", "wiz_seats:2")),
-                List.of(Map.of("text", "At least 4 seats", "callback_data", "wiz_seats:4"), Map.of("text", "At least 6 seats", "callback_data", "wiz_seats:6")),
-                List.of(Map.of("text", "✍️ Type Minimum Seats", "callback_data", "wiz_seats:__custom__")),
-                List.of(Map.of("text", "❌ Cancel", "callback_data", "menu:cancel"))
-        );
-        telegramService.sendWithInlineKeyboard(chatId, msg, keyboard);
-    }
-
     private void finalizeWatchFromWizard(String chatId, WizardSession session) {
-        // Prevent duplicate watch rules for the same movie, theatre, screen, and date
+        // Prevent duplicate watch rules for the same movie, theatre, screen, and date.
         List<WatchRule> existingRules = repository.findByChatIdAndMovieNameIgnoreCaseAndAcknowledgedFalse(chatId, session.getMovieName());
         for (WatchRule ex : existingRules) {
             boolean sameTheatre = Objects.equals(ex.getTheatreName(), session.getTheatreName());
             boolean sameDate = Objects.equals(ex.getTargetDate(), session.getTargetDate());
             boolean sameScreen = Objects.equals(ex.getScreenFilter(), session.getScreenFilter());
-            boolean sameLanguage = Objects.equals(ex.getLanguageFilter(), session.getLanguageFilter());
-            boolean sameFormat = Objects.equals(ex.getFormatFilter(), session.getFormatFilter());
-            boolean samePrice = Objects.equals(ex.getMaxPrice(), session.getMaxPrice());
-            boolean sameSeats = ex.getMinAvailableSeats() == session.getMinAvailableSeats();
-            if (sameTheatre && sameDate && sameScreen && sameLanguage && sameFormat && samePrice && sameSeats) {
+            if (sameTheatre && sameDate && sameScreen) {
                 sessions.remove(chatId);
                 String dupMsg = """
                         ⚠️ <b>Alert Already Active!</b>
@@ -648,11 +481,11 @@ public class TelegramCommandService {
                 session.getTheatreName(),
                 session.getScreenFilter() != null ? session.getScreenFilter() : "ANY",
                 session.getTargetDate(),
-                session.getLanguageFilter(),
-                session.getFormatFilter(),
+                "ANY",
+                "ANY",
                 session.getMovieUrl(),
-                session.getMaxPrice(),
-                session.getMinAvailableSeats()
+                null,
+                0
         ));
         sessions.remove(chatId);
 
@@ -664,22 +497,14 @@ public class TelegramCommandService {
                 🏛 <b>Theatre:</b> %s
                 🖥 <b>Screen:</b> %s
                 📅 <b>Date:</b> %s
-                🗣 <b>Language:</b> %s
-                🎞 <b>Format:</b> %s
-                💰 <b>Max Price:</b> %s
-                💺 <b>Minimum Seats:</b> %s
 
-                🔔 <i>Persistent alerts are ON — as soon as tickets open in Vizag, you'll be notified repeatedly with direct seat booking links!</i>
+                🔔 <i>Alerts are ON — you will be notified when tickets become bookable for this exact theatre, screen, and date.</i>
                 """.formatted(
                 saved.getId(),
                 escapeHtml(saved.getMovieName()),
                 escapeHtml(saved.getTheatreName() == null ? "Any Theatre in Vizag" : saved.getTheatreName()),
                 escapeHtml((saved.getScreenFilter() == null || saved.getScreenFilter().equalsIgnoreCase("ANY")) ? "Any Screen" : saved.getScreenFilter()),
-                escapeHtml(saved.getTargetDate()),
-                escapeHtml(saved.getLanguageFilter()),
-                escapeHtml(saved.getFormatFilter()),
-                escapeHtml(saved.getMaxPrice() == null ? "Any Price" : "₹" + saved.getMaxPrice().stripTrailingZeros().toPlainString()),
-                escapeHtml(saved.getMinAvailableSeats() <= 0 ? "Any Availability" : "At least " + saved.getMinAvailableSeats())
+                escapeHtml(saved.getTargetDate())
         );
 
         List<List<Map<String, Object>>> keyboard = List.of(
@@ -730,30 +555,6 @@ public class TelegramCommandService {
                     telegramService.sendMessage(chatId, "⚠️ Invalid date. Enter a real date in <code>YYYY-MM-DD</code> format:");
                     return;
                 }
-                promptForLanguageSelection(chatId, session);
-            }
-            case AWAITING_CUSTOM_PRICE -> {
-                try {
-                    BigDecimal parsed = new BigDecimal(text.trim());
-                    if (parsed.signum() <= 0 || parsed.scale() > 2 || parsed.compareTo(new BigDecimal("100000")) > 0) {
-                        throw new NumberFormatException();
-                    }
-                    session.setMaxPrice(parsed);
-                } catch (NumberFormatException e) {
-                    telegramService.sendMessage(chatId, "⚠️ Enter a positive price with up to 2 decimals (for example <code>350</code>):");
-                    return;
-                }
-                promptForSeatSelection(chatId, session);
-            }
-            case AWAITING_CUSTOM_SEATS -> {
-                try {
-                    int seats = Integer.parseInt(text.trim());
-                    if (seats < 0 || seats > 1000) throw new NumberFormatException();
-                    session.setMinAvailableSeats(seats);
-                } catch (NumberFormatException e) {
-                    telegramService.sendMessage(chatId, "⚠️ Enter a whole number of seats between 0 and 1000:");
-                    return;
-                }
                 finalizeWatchFromWizard(chatId, session);
             }
             default -> sendMainMenu(chatId);
@@ -797,14 +598,17 @@ public class TelegramCommandService {
                     List.of(Map.of("text", "➕ Create New Alert", "callback_data", "menu:new"))
             );
             telegramService.sendWithInlineKeyboard(chatId, "🗑 <b>All watches deleted!</b>", kb);
-        } else if (data.equals("wiz_quick_all")) {
+        } else if (data.startsWith("wiz_movie_idx:")) {
             WizardSession session = sessions.computeIfAbsent(chatId, k -> new WizardSession());
-            session.setTheatreName(null);
-            session.setScreenFilter("ANY");
-            session.setTargetDate("ANY");
-            session.setLanguageFilter("ANY");
-            session.setFormatFilter("ANY");
-            finalizeWatchFromWizard(chatId, session);
+            int index = Integer.parseInt(data.substring("wiz_movie_idx:".length()));
+            if (index < 0 || index >= session.getMovieOptions().size()) {
+                telegramService.sendMessage(chatId, "⚠️ That movie selection expired. Please start a new alert.");
+                return;
+            }
+            session.setCity("vizag");
+            session.setMovieName(session.getMovieOptions().get(index));
+            session.setMovieUrl(index < session.getMovieUrls().size() ? session.getMovieUrls().get(index) : null);
+            promptForTheatreSelection(chatId, session);
         } else if (data.startsWith("wiz_movie:")) {
             String movie = data.substring("wiz_movie:".length());
             WizardSession session = sessions.computeIfAbsent(chatId, k -> new WizardSession());
@@ -814,9 +618,7 @@ public class TelegramCommandService {
                 telegramService.sendMessage(chatId, "✍️ Please type and send the <b>Movie Name</b> in chat:");
             } else {
                 session.setMovieName(movie);
-                List<Map<String, String>> allMovies = new ArrayList<>(scraperService.fetchCurrentVizagMovies());
-                allMovies.addAll(scraperService.fetchUpcomingVizagMovies());
-                for (Map<String, String> m : allMovies) {
+                for (Map<String, String> m : scraperService.fetchCurrentVizagMovies()) {
                     if (m.get("name").equalsIgnoreCase(movie)) {
                         session.setMovieUrl(scraperService.normalizeToVizagUrl(m.get("url")));
                         break;
@@ -824,6 +626,15 @@ public class TelegramCommandService {
                 }
                 promptForTheatreSelection(chatId, session);
             }
+        } else if (data.startsWith("wiz_theatre_idx:")) {
+            WizardSession session = sessions.computeIfAbsent(chatId, k -> new WizardSession());
+            int index = Integer.parseInt(data.substring("wiz_theatre_idx:".length()));
+            if (index < 0 || index >= session.getTheatreOptions().size()) {
+                telegramService.sendMessage(chatId, "⚠️ That theatre selection expired. Please start a new alert.");
+                return;
+            }
+            session.setTheatreName(session.getTheatreOptions().get(index));
+            promptForScreenSelection(chatId, session);
         } else if (data.startsWith("wiz_theatre:")) {
             String theatre = data.substring("wiz_theatre:".length());
             WizardSession session = sessions.computeIfAbsent(chatId, k -> new WizardSession());
@@ -831,9 +642,18 @@ public class TelegramCommandService {
                 session.setStep(Step.AWAITING_CUSTOM_THEATRE);
                 telegramService.sendMessage(chatId, "✍️ Please type and send the <b>Theatre Name</b> in Vizag (e.g., <code>Sangam Sarat</code>, <code>Melody</code>):");
             } else {
-                session.setTheatreName("ANY".equals(theatre) ? null : theatre);
+                session.setTheatreName(theatre);
                 promptForScreenSelection(chatId, session);
             }
+        } else if (data.startsWith("wiz_screen_idx:")) {
+            WizardSession session = sessions.computeIfAbsent(chatId, k -> new WizardSession());
+            int index = Integer.parseInt(data.substring("wiz_screen_idx:".length()));
+            if (index < 0 || index >= session.getScreenOptions().size()) {
+                telegramService.sendMessage(chatId, "⚠️ That screen selection expired. Please start a new alert.");
+                return;
+            }
+            session.setScreenFilter(session.getScreenOptions().get(index));
+            promptForDateSelection(chatId, session);
         } else if (data.startsWith("wiz_screen:")) {
             String screen = data.substring("wiz_screen:".length());
             WizardSession session = sessions.computeIfAbsent(chatId, k -> new WizardSession());
@@ -852,36 +672,6 @@ public class TelegramCommandService {
                 telegramService.sendMessage(chatId, "✍️ Please type target date in <b>YYYY-MM-DD</b> format (e.g., <code>2026-11-05</code>):");
             } else {
                 session.setTargetDate(dateVal);
-                promptForLanguageSelection(chatId, session);
-            }
-        } else if (data.startsWith("wiz_lang:")) {
-            String lang = data.substring("wiz_lang:".length());
-            WizardSession session = sessions.computeIfAbsent(chatId, k -> new WizardSession());
-            session.setLanguageFilter(lang);
-            promptForFormatSelection(chatId, session);
-        } else if (data.startsWith("wiz_fmt:")) {
-            String fmt = data.substring("wiz_fmt:".length());
-            WizardSession session = sessions.computeIfAbsent(chatId, k -> new WizardSession());
-            session.setFormatFilter(fmt);
-            promptForPriceSelection(chatId, session);
-        } else if (data.startsWith("wiz_price:")) {
-            String price = data.substring("wiz_price:".length());
-            WizardSession session = sessions.computeIfAbsent(chatId, k -> new WizardSession());
-            if ("__custom__".equals(price)) {
-                session.setStep(Step.AWAITING_CUSTOM_PRICE);
-                telegramService.sendMessage(chatId, "✍️ Type the maximum ticket price in rupees (for example <code>350</code>):");
-            } else {
-                session.setMaxPrice("ANY".equalsIgnoreCase(price) ? null : new BigDecimal(price));
-                promptForSeatSelection(chatId, session);
-            }
-        } else if (data.startsWith("wiz_seats:")) {
-            String seats = data.substring("wiz_seats:".length());
-            WizardSession session = sessions.computeIfAbsent(chatId, k -> new WizardSession());
-            if ("__custom__".equals(seats)) {
-                session.setStep(Step.AWAITING_CUSTOM_SEATS);
-                telegramService.sendMessage(chatId, "✍️ Type the minimum number of available seats (0 for any availability):");
-            } else {
-                session.setMinAvailableSeats(Integer.parseInt(seats));
                 finalizeWatchFromWizard(chatId, session);
             }
         } else if (data.startsWith("ack:")) {
@@ -982,10 +772,6 @@ public class TelegramCommandService {
                     .append("   🏛 ").append(escapeHtml(theatreInfo))
                     .append(" | 🖥 ").append(escapeHtml(screenInfo))
                     .append(" | 📅 ").append(escapeHtml(r.getTargetDate()))
-                    .append(" | 🗣 ").append(escapeHtml(r.getLanguageFilter()))
-                    .append(" | 🎞 ").append(escapeHtml(r.getFormatFilter()))
-                    .append(" | 💰 ").append(escapeHtml(r.getMaxPrice() == null ? "Any Price" : "≤₹" + r.getMaxPrice().stripTrailingZeros().toPlainString()))
-                    .append(" | 💺 ").append(r.getMinAvailableSeats() <= 0 ? "Any Seats" : "≥" + r.getMinAvailableSeats())
                     .append("\n\n");
 
             keyboard.add(List.of(

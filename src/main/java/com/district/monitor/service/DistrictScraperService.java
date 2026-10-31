@@ -292,7 +292,7 @@ public class DistrictScraperService {
             List<ScreeningRecord> allScreenings = extractScreeningsFromPage(doc, rawHtml, "", extractDateFromUrl(targetUrl));
             Set<String> screens = new LinkedHashSet<>();
             for (ScreeningRecord r : allScreenings) {
-                if (matchesTheatre(r, theatreFilter) && r.audi() != null && !r.audi().isBlank() && !"Main Screen".equalsIgnoreCase(r.audi())) {
+                if (matchesTheatre(r, theatreFilter) && r.audi() != null && !r.audi().isBlank()) {
                     screens.add(r.audi().trim());
                 }
             }
@@ -301,6 +301,50 @@ public class DistrictScraperService {
             log.debug("Could not extract live screens for theatre {}: {}", theatreFilter, e.getMessage());
             return List.of();
         }
+    }
+
+    /**
+     * Returns theatres currently present in District's movie-session data for
+     * the selected Vizag movie. This is deliberately movie-specific: the
+     * watcher must alert only for the theatre chosen by the user.
+     */
+    public List<String> getAvailableTheatresForMovie(String movieUrl) {
+        if (movieUrl == null || movieUrl.isBlank() || movieUrl.endsWith("/movies")) {
+            return List.of();
+        }
+        try {
+            String targetUrl = normalizeToVizagUrl(movieUrl);
+            if (!isAllowedMoviePageUrl(targetUrl)) return List.of();
+            Document doc = fetchDocument(targetUrl, 15_000, "theatre discovery");
+            List<ScreeningRecord> screenings = extractScreeningsFromPage(
+                    doc, doc.html(), "", extractDateFromUrl(targetUrl));
+            return screenings.stream()
+                    .map(ScreeningRecord::cinemaName)
+                    .filter(Objects::nonNull)
+                    .map(String::trim)
+                    .filter(value -> !value.isBlank())
+                    .distinct()
+                    .toList();
+        } catch (Exception e) {
+            log.debug("Could not extract live theatres for movie {}: {}", movieUrl, e.getMessage());
+            return List.of();
+        }
+    }
+
+    /** Known Vizag cinema roster used when a movie has not opened bookings yet. */
+    public List<String> getKnownVizagTheatres() {
+        return List.of(
+                "AAA Cinemas",
+                "INOX Varun Beach",
+                "INOX CMR Central",
+                "INOX Chitralayaa Mall",
+                "Cinepolis Sreekanya Cineglitz",
+                "Asian Mukta A2 Cinemas",
+                "STBL Cinemas Multiplex SL Nagar",
+                "Miraj Cinemas Bhupathi Surya Central",
+                "Kameswari / Kinnera",
+                "Jagadamba / Sarat"
+        );
     }
 
     public AvailabilityCheckResult checkWatchRule(WatchRule rule) {
@@ -417,12 +461,8 @@ public class DistrictScraperService {
         // Apply all filters: Date + Language + Format + Theatre + Screen
         List<ScreeningRecord> matched = allScreenings.stream()
                 .filter(s -> matchesDate(s, rule.getTargetDate()))
-                .filter(s -> matchesLanguage(s, rule.getLanguageFilter()))
-                .filter(s -> matchesFormat(s, rule.getFormatFilter()))
                 .filter(s -> matchesTheatre(s, rule.getTheatreName()))
                 .filter(s -> matchesScreen(s, rule.getScreenFilter()))
-                .filter(s -> matchesPrice(s, rule.getMaxPrice()))
-                .filter(s -> matchesAvailableSeats(s, rule.getMinAvailableSeats()))
                 .toList();
 
         if (matched.isEmpty()) {
@@ -759,33 +799,11 @@ public class DistrictScraperService {
         if (record.audi() == null || record.audi().isBlank()) {
             return false;
         }
+        return normalizeScreenName(screenFilter).equals(normalizeScreenName(record.audi()));
+    }
 
-        String sf = screenFilter.trim().toLowerCase().replaceAll("\\s+", "");
-        String ra = record.audi().toLowerCase().replaceAll("\\s+", "");
-
-        if (ra.contains(sf) || sf.contains(ra)) {
-            return true;
-        }
-
-        // Compare number tokens (e.g., "Screen 2" vs "SCREEN 2 (Dolby Atmos)", "Audi 3" vs "AUDI03 (Q-Luxon LED)")
-        Matcher m1 = Pattern.compile("\\d+").matcher(sf);
-        Matcher m2 = Pattern.compile("\\d+").matcher(ra);
-        if (m1.find() && m2.find()) {
-            try {
-                int num1 = Integer.parseInt(m1.group());
-                int num2 = Integer.parseInt(m2.group());
-                if (num1 == num2) {
-                    return true;
-                }
-            } catch (Exception ignored) {}
-        }
-
-        // Match premium screen keywords
-        if (sf.contains("luxon") && ra.contains("luxon")) return true;
-        if (sf.contains("atmos") && ra.contains("atmos")) return true;
-        if (sf.contains("led") && ra.contains("led")) return true;
-
-        return false;
+    private String normalizeScreenName(String value) {
+        return value == null ? "" : value.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "");
     }
 
     private boolean matchesPrice(ScreeningRecord record, BigDecimal maxPrice) {

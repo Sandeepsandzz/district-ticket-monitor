@@ -72,11 +72,11 @@ public class WatchAndTelegramController {
                 req.theatreName(),
                 req.screenFilter(),
                 req.targetDate(),
-                req.languageFilter(),
-                req.formatFilter(),
+                "ANY",
+                "ANY",
                 req.movieUrl(),
-                req.maxPrice(),
-                req.minAvailableSeats()
+                null,
+                0
         ));
         return ResponseEntity.ok(saved);
     }
@@ -221,18 +221,12 @@ public class WatchAndTelegramController {
         if (req.chatId() == null || !req.chatId().matches("-?\\d{1,20}")) return "chatId must be a numeric Telegram chat ID";
         if (req.movieName() == null || req.movieName().isBlank() || req.movieName().length() > 120) return "movieName must be 1 to 120 characters";
         if (req.city() != null && !req.city().isBlank() && !"vizag".equalsIgnoreCase(req.city().trim())) return "Only Vizag is supported";
-        if (!validDateFilter(req.targetDate())) return "targetDate must be ANY or a valid YYYY-MM-DD date";
-        if (tooLong(req.theatreName()) || tooLong(req.screenFilter()) || tooLong(req.languageFilter()) || tooLong(req.formatFilter())) {
-            return "Filter values must not exceed 100 characters";
-        }
+        if (req.theatreName() == null || req.theatreName().isBlank() || "ANY".equalsIgnoreCase(req.theatreName().trim())) return "theatreName is required";
+        if (req.screenFilter() == null || req.screenFilter().isBlank() || "ANY".equalsIgnoreCase(req.screenFilter().trim())) return "screenFilter is required";
+        if (!validSpecificDate(req.targetDate())) return "targetDate must be a valid YYYY-MM-DD date";
+        if (tooLong(req.theatreName()) || tooLong(req.screenFilter())) return "Theatre and screen values must not exceed 100 characters";
         if (req.movieUrl() != null && !req.movieUrl().isBlank() && !scraperService.isAllowedMoviePageUrl(req.movieUrl())) {
             return "movieUrl must be an HTTPS movie page on www.district.in";
-        }
-        if (req.maxPrice() != null && (req.maxPrice().signum() <= 0 || req.maxPrice().scale() > 2)) {
-            return "maxPrice must be a positive amount with at most 2 decimal places";
-        }
-        if (req.minAvailableSeats() != null && (req.minAvailableSeats() < 0 || req.minAvailableSeats() > 1000)) {
-            return "minAvailableSeats must be between 0 and 1000";
         }
         return null;
     }
@@ -244,6 +238,10 @@ public class WatchAndTelegramController {
         } catch (DateTimeParseException e) {
             return false;
         }
+    }
+
+    private boolean validSpecificDate(String value) {
+        return value != null && !value.isBlank() && !"ANY".equalsIgnoreCase(value.trim()) && validDateFilter(value);
     }
 
     private boolean tooLong(String value) {

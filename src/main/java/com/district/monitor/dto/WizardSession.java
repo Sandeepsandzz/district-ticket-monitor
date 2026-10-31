@@ -1,6 +1,8 @@
 package com.district.monitor.dto;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Holds in-memory conversation state for the interactive Telegram Inline Keyboard wizard.
@@ -16,13 +18,7 @@ public class WizardSession {
         AWAITING_SCREEN_CHOICE,
         AWAITING_CUSTOM_SCREEN,
         AWAITING_DATE_CHOICE,
-        AWAITING_CUSTOM_DATE,
-        AWAITING_LANGUAGE_CHOICE,
-        AWAITING_FORMAT_CHOICE,
-        AWAITING_PRICE_CHOICE,
-        AWAITING_CUSTOM_PRICE,
-        AWAITING_SEATS_CHOICE,
-        AWAITING_CUSTOM_SEATS
+        AWAITING_CUSTOM_DATE
     }
 
     private Step step = Step.IDLE;
@@ -36,6 +32,10 @@ public class WizardSession {
     private String formatFilter = "ANY";
     private BigDecimal maxPrice;
     private int minAvailableSeats = 0;
+    private List<String> theatreOptions = new ArrayList<>();
+    private List<String> screenOptions = new ArrayList<>();
+    private List<String> movieOptions = new ArrayList<>();
+    private List<String> movieUrls = new ArrayList<>();
 
     public Step getStep() { return step; }
     public void setStep(Step step) { this.step = step; }
@@ -59,4 +59,20 @@ public class WizardSession {
     public void setMaxPrice(BigDecimal maxPrice) { this.maxPrice = maxPrice; }
     public int getMinAvailableSeats() { return minAvailableSeats; }
     public void setMinAvailableSeats(int minAvailableSeats) { this.minAvailableSeats = Math.max(0, minAvailableSeats); }
+    public List<String> getTheatreOptions() { return theatreOptions; }
+    public void setTheatreOptions(List<String> theatreOptions) {
+        this.theatreOptions = theatreOptions == null ? new ArrayList<>() : new ArrayList<>(theatreOptions);
+    }
+    public List<String> getScreenOptions() { return screenOptions; }
+    public void setScreenOptions(List<String> screenOptions) {
+        this.screenOptions = screenOptions == null ? new ArrayList<>() : new ArrayList<>(screenOptions);
+    }
+    public List<String> getMovieOptions() { return movieOptions; }
+    public void setMovieOptions(List<String> movieOptions) {
+        this.movieOptions = movieOptions == null ? new ArrayList<>() : new ArrayList<>(movieOptions);
+    }
+    public List<String> getMovieUrls() { return movieUrls; }
+    public void setMovieUrls(List<String> movieUrls) {
+        this.movieUrls = movieUrls == null ? new ArrayList<>() : new ArrayList<>(movieUrls);
+    }
 }

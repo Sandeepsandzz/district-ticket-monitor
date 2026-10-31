@@ -8,21 +8,12 @@ A cloud-ready **Java 21 + Spring Boot 3.3** microservice integrated with an **In
 2. **100% Button-Driven Interactive Telegram UI**:
    - Tap `/start` or `/menu` in Telegram to launch the inline keyboard wizard.
    - **Movie Selection Buttons**: Dynamically loads real, current Vizag movies directly from District (`Jailer 2`, `Ramayana`, `Cult`, `Ranabaali`, `Killer`, etc.).
-   - **Vizag Theatre Buttons**: Quick selection for top Vizag cinemas:
-     - `INOX Varun Beach`
-     - `INOX CMR Central`
-     - `Cinepolis Sreekanya`
-     - `INOX Chitralayaa`
-     - `Kameswari / Kinnera`
-     - `AAA Cinemas`
-     - `Asian Mukta A2 (Gajuwaka)`
-     - `Jagadamba / Sarat`
-     - `Any Theatre in Vizag (City-Wide)`
-   - **Date, Language & Format Buttons**: One-tap buttons for `Today`, `Tomorrow`, `Any Date`, `Telugu`, `Hindi`, `English`, `IMAX`, `Dolby Atmos`, `3D`, `2D`.
+   - **Vizag Theatre Buttons**: The selected movie's theatres are loaded from District, with a Vizag cinema roster fallback when bookings have not opened yet.
+   - **Exact watch wizard**: Choose `Released Movie → Vizag Theatre → Screen → Date`.
    - **Cancel Button**: Available on every step so you never get stuck.
-3. **Zero False Positives**:
+3. **Exact theatre/screen/date matching**:
    - Parses District session data and Schema.org `ScreeningEvent` records.
-   - Unknown date, language, or format values do not satisfy a specific filter; generic seat-layout links alone do not trigger alerts.
+   - Alerts fire only when District exposes a session for the selected movie, theatre, screen, and date; generic movie or seat-layout links alone do not trigger alerts.
 4. **Duplicate Alert Protection**:
    - Prevents creating duplicate alerts for the same movie, theatre, and date.
 5. **Interactive Persistent Alerts**:
@@ -61,7 +52,7 @@ After creating a watch, use its numeric ID with these commands:
 - `/check` — check your watches immediately.
 - `/clear` — delete all watches after confirmation.
 
-The watch wizard also supports maximum ticket price and minimum available-seat filters. If District does not publish price or seat-count data for a show, a watch using that specific filter will not match it.
+The watch wizard intentionally has no price, seat-count, language, or format filters. Its purpose is to notify you when tickets open for one exact movie, theatre, screen, and date.
 
 ## Admin dashboard
 

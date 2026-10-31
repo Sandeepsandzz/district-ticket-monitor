@@ -105,7 +105,7 @@ class DistrictScraperServiceTest {
                 "vizag",
                 "Jailer 2",
                 "Varun Beach",
-                "Atmos",
+                "Screen 2 (Dolby Atmos)",
                 "ANY",
                 "ANY",
                 "ANY",
@@ -115,8 +115,8 @@ class DistrictScraperServiceTest {
         AvailabilityCheckResult result = scraper.checkWatchRule(rule);
         assertNotNull(result);
         assertTrue(result.isAvailable(), "Must match Atmos screen filter at Varun Beach");
-        assertTrue(result.matchedScreens().stream().anyMatch(s -> s.toLowerCase().contains("atmos") || s.contains("2")),
-                "Matched screens should include Dolby Atmos / Screen 2");
+        assertTrue(result.matchedScreens().stream().anyMatch(s -> s.equalsIgnoreCase("Screen 2 (Dolby Atmos)")),
+                "Matched screen should be the exact selected screen");
     }
 
     @Test

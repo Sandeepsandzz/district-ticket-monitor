@@ -99,7 +99,7 @@
   }
   function row(w) {
     const paused = w.acknowledged;
-    const filters = `${esc(w.theatreName || 'Any theatre')} · ${esc(w.screenFilter || 'Any screen')}<br>${esc(w.targetDate || 'Any date')} · ${esc(w.languageFilter || 'Any language')} · ${esc(w.formatFilter || 'Any format')}<br>≤ ${esc(price(w.maxPrice))} · ≥ ${esc(w.minAvailableSeats || 0)} seats`;
+    const filters = `${esc(w.theatreName || '—')} · ${esc(w.screenFilter || '—')}<br>${esc(w.targetDate || '—')}`;
     return `<tr><td>#${esc(w.id)}</td><td><strong>${esc(w.movieName)}</strong><br><span class="muted">${esc(w.city)}</span></td><td><code>${esc(w.chatId)}</code></td><td>${filters}</td><td>${esc(w.alertCount)}<br><span class="muted">${esc(date(w.lastAlertedAt))}</span></td><td><span class="pill ${paused ? 'paused' : 'ok'}">${paused ? 'PAUSED' : 'ACTIVE'}</span></td><td><div class="actions"><button class="secondary" onclick="toggle(${w.id},${paused})">${paused ? 'Resume' : 'Pause'}</button><button class="secondary" onclick="snooze(${w.id})">Snooze</button><button class="danger" onclick="removeWatch(${w.id})">Delete</button></div></td></tr>`;
   }
   async function toggle(id, paused) { try { await api(`/api/watches/${id}/${paused ? 'resume' : 'acknowledge'}`, {method:'POST'}); await load(); } catch(e) { message(e.message, true); } }
