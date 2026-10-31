@@ -289,7 +289,7 @@ public class DistrictScraperService {
             Document doc = fetchDocument(targetUrl, 10_000, "screen discovery");
 
             String rawHtml = doc.html();
-            List<ScreeningRecord> allScreenings = extractScreeningsFromPage(doc, rawHtml, "");
+            List<ScreeningRecord> allScreenings = extractScreeningsFromPage(doc, rawHtml, "", extractDateFromUrl(targetUrl));
             Set<String> screens = new LinkedHashSet<>();
             for (ScreeningRecord r : allScreenings) {
                 if (matchesTheatre(r, theatreFilter) && r.audi() != null && !r.audi().isBlank() && !"Main Screen".equalsIgnoreCase(r.audi())) {
@@ -402,7 +402,10 @@ public class DistrictScraperService {
         Document doc = fetchDocument(movieUrl, 15_000, "movie page");
 
         String rawHtml = doc.html();
-        List<ScreeningRecord> allScreenings = extractScreeningsFromPage(doc, rawHtml, rule.getMovieName());
+        String fallbackDate = "ANY".equalsIgnoreCase(rule.getTargetDate())
+                ? extractDateFromUrl(movieUrl)
+                : rule.getTargetDate();
+        List<ScreeningRecord> allScreenings = extractScreeningsFromPage(doc, rawHtml, rule.getMovieName(), fallbackDate);
 
         if (allScreenings.isEmpty()) {
             log.debug("Zero screenings found for movie='{}' (page={})", rule.getMovieName(), movieUrl);
@@ -465,7 +468,7 @@ public class DistrictScraperService {
         );
     }
 
-    private List<ScreeningRecord> extractScreeningsFromPage(Document doc, String rawHtml, String fallbackTitle) {
+    private List<ScreeningRecord> extractScreeningsFromPage(Document doc, String rawHtml, String fallbackTitle, String fallbackDate) {
         List<ScreeningRecord> screenings = new ArrayList<>();
 
         // Strategy 1: Parse District's native Next.js state via __NEXT_DATA__
@@ -473,50 +476,19 @@ public class DistrictScraperService {
         if (nextDataEl != null && !nextDataEl.html().isBlank()) {
             try {
                 JsonNode nextData = objectMapper.readTree(nextDataEl.html());
-                JsonNode movieSessions = nextData.path("props").path("pageProps").path("initialState").path("movies").path("movieSessions");
-                if (movieSessions.isObject()) {
-                    Iterator<Map.Entry<String, JsonNode>> fields = movieSessions.fields();
-                    while (fields.hasNext()) {
-                        Map.Entry<String, JsonNode> entry = fields.next();
-                        JsonNode cinemas = entry.getValue().path("pageData").path("nearbyCinemas");
-                        if (cinemas.isArray()) {
-                            for (JsonNode cinema : cinemas) {
-                                String cinemaName = cinema.path("cinemaInfo").path("name").asText("").trim();
-                                if (cinemaName.isBlank()) {
-                                    cinemaName = cinema.path("cinemaInfo").path("label").asText("").trim();
-                                }
-                                if (cinemaName.isBlank()) {
-                                    cinemaName = cinema.path("name").asText("").trim();
-                                }
-                                JsonNode sessions = cinema.path("sessions");
-                                if (sessions.isArray()) {
-                                    for (JsonNode s : sessions) {
-                                        String showTimeRaw = s.path("showTime").asText("").trim();
-                                        String audiRaw = s.path("audi").asText("").trim();
-                                        String premiumLabel = s.path("premiumLabel").asText("").trim();
-                                        String format = s.path("scrnFmt").asText("").trim();
-                                        if (format.isBlank()) format = null;
-                                        String language = extractLanguage(s);
-                                        String encSessionId = s.path("encSessionId").asText("").trim();
-                                        String mcd = s.path("mcd").asText("").trim();
-
-                                        String audi = formatAudi(audiRaw, premiumLabel);
-                                        BigDecimal price = extractPrice(s);
-                                        Integer availableSeats = extractAvailableSeats(s);
-                                        String[] dt = parseDateTimeIst(showTimeRaw);
-
-                                        String seatLink = "https://www.district.in/movies/seat-layout/" + mcd
-                                                + "?encsessionid=" + encSessionId + "&freeseating=false&fromsessions=true&type=MOVIES";
-
-                                        screenings.add(new ScreeningRecord(
-                                                fallbackTitle, dt[0], dt[1], cinemaName, format, audi, language, seatLink,
-                                                price, availableSeats
-                                        ));
-                                    }
-                                }
-                            }
-                        }
-                    }
+                // District changed its Next.js state shape. Current pages publish
+                // sessions under data.serverState.movieSessions; older pages used
+                // initialState.movies.movieSessions. Read both shapes and recurse
+                // through the session container so a harmless wrapper rename does
+                // not turn every watch into a false negative again.
+                List<JsonNode> sessionRoots = List.of(
+                        nextData.path("props").path("pageProps").path("data").path("serverState").path("movieSessions"),
+                        nextData.path("props").path("pageProps").path("initialState").path("movies").path("movieSessions"),
+                        nextData.path("props").path("pageProps").path("data").path("movieSessions")
+                );
+                for (JsonNode sessionRoot : sessionRoots) {
+                    collectMovieSessions(sessionRoot, screenings, fallbackTitle, fallbackDate);
+                    if (!screenings.isEmpty()) break;
                 }
             } catch (Exception e) {
                 log.debug("Failed parsing __NEXT_DATA__ sessions: {}", e.getMessage());
@@ -539,7 +511,7 @@ public class DistrictScraperService {
                 String audi = formatAudiWithLabel(audiRaw, sessionRest);
                 BigDecimal price = extractPrice(sessionRest);
                 Integer availableSeats = extractAvailableSeats(sessionRest);
-                String[] dt = parseDateTimeIst(showTimeRaw);
+                String[] dt = parseDateTimeIst(showTimeRaw, fallbackDate);
 
                 String seatLink = "https://www.district.in/movies/seat-layout/" + mcd
                         + "?encsessionid=" + encSessionId + "&freeseating=false&fromsessions=true&type=MOVIES";
@@ -575,7 +547,94 @@ public class DistrictScraperService {
         return screenings;
     }
 
+    private void collectMovieSessions(JsonNode node, List<ScreeningRecord> screenings, String fallbackTitle, String fallbackDate) {
+        if (node == null || node.isMissingNode() || node.isNull() || !screenings.isEmpty()) return;
+
+        if (node.isObject()) {
+            JsonNode cinemas = node.path("pageData").path("nearbyCinemas");
+            if (!cinemas.isArray()) {
+                cinemas = node.path("nearbyCinemas");
+            }
+            if (cinemas.isArray()) {
+                for (JsonNode cinema : cinemas) {
+                    collectCinemaSessions(cinema, screenings, fallbackTitle, fallbackDate);
+                }
+                if (!screenings.isEmpty()) return;
+            }
+
+            Iterator<JsonNode> values = node.elements();
+            while (values.hasNext() && screenings.isEmpty()) {
+                collectMovieSessions(values.next(), screenings, fallbackTitle, fallbackDate);
+            }
+        } else if (node.isArray()) {
+            for (JsonNode item : node) {
+                collectMovieSessions(item, screenings, fallbackTitle, fallbackDate);
+                if (!screenings.isEmpty()) break;
+            }
+        }
+    }
+
+    private void collectCinemaSessions(JsonNode cinema, List<ScreeningRecord> screenings, String fallbackTitle, String fallbackDate) {
+        String cinemaName = firstText(cinema, "cinemaInfo.name", "cinemaInfo.label", "name", "label");
+        if (cinemaName.isBlank()) cinemaName = "Vizag Cinema";
+
+        JsonNode sessions = cinema.path("sessions");
+        if (!sessions.isArray()) sessions = cinema.path("showtimes");
+        if (!sessions.isArray()) sessions = cinema.path("showTimes");
+        if (!sessions.isArray()) return;
+
+        for (JsonNode session : sessions) {
+            String showTimeRaw = firstText(session, "showTime", "showtime", "startTime", "start_time", "dateTime");
+            String audiRaw = firstText(session, "audi", "screenName", "screen", "screen_name");
+            String premiumLabel = firstText(session, "premiumLabel", "premium", "seatType");
+            String format = firstText(session, "scrnFmt", "screenFormat", "format", "screen_format");
+            if (format.isBlank()) format = null;
+            String language = extractLanguage(session);
+            String encSessionId = firstText(session, "encSessionId", "encsessionid", "sessionId", "session_id");
+            String mcd = firstText(session, "mcd", "cinemaId", "cinema_id", "cinemaCode");
+
+            String audi = formatAudi(audiRaw, premiumLabel);
+            BigDecimal price = extractPrice(session);
+            Integer availableSeats = extractAvailableSeats(session);
+            String[] dt = parseDateTimeIst(showTimeRaw, fallbackDate);
+
+            String bookingUrl = firstText(session, "bookingUrl", "url", "deeplink");
+            if (bookingUrl.isBlank() && (!mcd.isBlank() || !encSessionId.isBlank())) {
+                bookingUrl = "https://www.district.in/movies/seat-layout/" + mcd
+                        + "?encsessionid=" + encSessionId + "&freeseating=false&fromsessions=true&type=MOVIES";
+            }
+            if (bookingUrl.isBlank()) bookingUrl = "https://www.district.in/movies";
+
+            screenings.add(new ScreeningRecord(
+                    fallbackTitle, dt[0], dt[1], cinemaName, format, audi, language, bookingUrl,
+                    price, availableSeats
+            ));
+        }
+    }
+
+    private String firstText(JsonNode node, String... paths) {
+        for (String path : paths) {
+            JsonNode value = node;
+            for (String part : path.split("\\.")) value = value.path(part);
+            if (!value.isMissingNode() && !value.isNull()) {
+                String text = value.asText("").trim();
+                if (!text.isBlank()) return text;
+            }
+        }
+        return "";
+    }
+
+    private String extractDateFromUrl(String url) {
+        if (url == null || url.isBlank()) return null;
+        Matcher matcher = Pattern.compile("(?:[?&])fromdate=([0-9]{4}-[0-9]{2}-[0-9]{2})").matcher(url);
+        return matcher.find() ? matcher.group(1) : null;
+    }
+
     private String[] parseDateTimeIst(String showTimeRaw) {
+        return parseDateTimeIst(showTimeRaw, null);
+    }
+
+    private String[] parseDateTimeIst(String showTimeRaw, String fallbackDate) {
         if (showTimeRaw == null || showTimeRaw.isBlank()) {
             return new String[]{null, null};
         }
@@ -585,14 +644,23 @@ public class DistrictScraperService {
                 istTime = OffsetDateTime.parse(showTimeRaw).atZoneSameInstant(IST_ZONE);
             } else {
                 LocalDateTime ldt = LocalDateTime.parse(showTimeRaw);
-                istTime = ldt.atZone(ZoneOffset.UTC).withZoneSameInstant(IST_ZONE);
+                istTime = ldt.atZone(IST_ZONE);
             }
             String dateStr = istTime.format(DateTimeFormatter.ISO_LOCAL_DATE);
             String timeStr = istTime.format(DateTimeFormatter.ofPattern("hh:mm a", Locale.ENGLISH));
             return new String[]{dateStr, timeStr};
         } catch (Exception e) {
-            String dateStr = showTimeRaw.length() >= 10 ? showTimeRaw.substring(0, 10) : null;
-            String timeStr = showTimeRaw.length() >= 16 ? showTimeRaw.substring(11, 16) : null;
+            Matcher timeOnly = Pattern.compile("(?i)^(\\d{1,2}):(\\d{2})\\s*(AM|PM)$").matcher(showTimeRaw.trim());
+            if (timeOnly.find()) {
+                String dateStr = fallbackDate != null && !fallbackDate.isBlank() && !"ANY".equalsIgnoreCase(fallbackDate)
+                        ? fallbackDate : LocalDateTime.now(IST_ZONE).toLocalDate().toString();
+                String timeStr = String.format(Locale.ENGLISH, "%02d:%s %s",
+                        Integer.parseInt(timeOnly.group(1)), timeOnly.group(2), timeOnly.group(3).toUpperCase(Locale.ROOT));
+                return new String[]{dateStr, timeStr};
+            }
+            String dateStr = showTimeRaw.length() >= 10 && showTimeRaw.substring(0, 10).matches("\\d{4}-\\d{2}-\\d{2}")
+                    ? showTimeRaw.substring(0, 10) : fallbackDate;
+            String timeStr = showTimeRaw.length() >= 16 ? showTimeRaw.substring(11, 16) : showTimeRaw;
             return new String[]{dateStr, timeStr};
         }
     }
@@ -748,7 +816,7 @@ public class DistrictScraperService {
     private Integer extractAvailableSeats(JsonNode node) {
         JsonNode value = findFirstValue(node, Set.of(
                 "availableseats", "availableseatcount", "seatsavailable", "freeseats", "availabletickets", "availableticketcount",
-                "availablecount", "freeseatcount", "vacantseats", "bookableseats"
+                "availablecount", "freeseatcount", "vacantseats", "bookableseats", "avail", "availcount"
         ));
         Integer direct = parseInteger(value);
         if (direct != null) return direct;
@@ -772,7 +840,7 @@ public class DistrictScraperService {
 
     private Integer extractAvailableSeats(String text) {
         if (text == null || text.isBlank()) return null;
-        Matcher matcher = Pattern.compile("\\\"(?:availableSeats|availableSeatCount|seatsAvailable|freeSeats|availableTickets|availableTicketCount|availableCount|freeSeatCount|vacantSeats|bookableSeats)\\\"\\s*:\\s*\\\"?([0-9]+)", Pattern.CASE_INSENSITIVE)
+        Matcher matcher = Pattern.compile("\\\"(?:availableSeats|availableSeatCount|seatsAvailable|freeSeats|availableTickets|availableTicketCount|availableCount|freeSeatCount|vacantSeats|bookableSeats|avail|availCount)\\\"\\s*:\\s*\\\"?([0-9]+)", Pattern.CASE_INSENSITIVE)
                 .matcher(text);
         return matcher.find() ? parseInteger(matcher.group(1)) : null;
     }
