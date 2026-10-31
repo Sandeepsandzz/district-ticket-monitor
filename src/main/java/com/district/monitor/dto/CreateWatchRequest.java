@@ -1,5 +1,7 @@
 package com.district.monitor.dto;
 
+import java.math.BigDecimal;
+
 public record CreateWatchRequest(
         String chatId,
         String city,
@@ -9,6 +11,8 @@ public record CreateWatchRequest(
         String targetDate,
         String languageFilter,
         String formatFilter,
-        String movieUrl
+        String movieUrl,
+        BigDecimal maxPrice,
+        Integer minAvailableSeats
 ) {
 }

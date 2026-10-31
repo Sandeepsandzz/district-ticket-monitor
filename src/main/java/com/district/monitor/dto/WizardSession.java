@@ -1,5 +1,7 @@
 package com.district.monitor.dto;
 
+import java.math.BigDecimal;
+
 /**
  * Holds in-memory conversation state for the interactive Telegram Inline Keyboard wizard.
  */
@@ -16,7 +18,11 @@ public class WizardSession {
         AWAITING_DATE_CHOICE,
         AWAITING_CUSTOM_DATE,
         AWAITING_LANGUAGE_CHOICE,
-        AWAITING_FORMAT_CHOICE
+        AWAITING_FORMAT_CHOICE,
+        AWAITING_PRICE_CHOICE,
+        AWAITING_CUSTOM_PRICE,
+        AWAITING_SEATS_CHOICE,
+        AWAITING_CUSTOM_SEATS
     }
 
     private Step step = Step.IDLE;
@@ -28,6 +34,8 @@ public class WizardSession {
     private String targetDate = "ANY";
     private String languageFilter = "ANY";
     private String formatFilter = "ANY";
+    private BigDecimal maxPrice;
+    private int minAvailableSeats = 0;
 
     public Step getStep() { return step; }
     public void setStep(Step step) { this.step = step; }
@@ -47,4 +55,8 @@ public class WizardSession {
     public void setLanguageFilter(String languageFilter) { this.languageFilter = languageFilter; }
     public String getFormatFilter() { return formatFilter; }
     public void setFormatFilter(String formatFilter) { this.formatFilter = formatFilter; }
+    public BigDecimal getMaxPrice() { return maxPrice; }
+    public void setMaxPrice(BigDecimal maxPrice) { this.maxPrice = maxPrice; }
+    public int getMinAvailableSeats() { return minAvailableSeats; }
+    public void setMinAvailableSeats(int minAvailableSeats) { this.minAvailableSeats = Math.max(0, minAvailableSeats); }
 }

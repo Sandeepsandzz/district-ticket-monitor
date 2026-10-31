@@ -12,8 +12,10 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.List;
@@ -72,9 +74,40 @@ public class WatchAndTelegramController {
                 req.targetDate(),
                 req.languageFilter(),
                 req.formatFilter(),
-                req.movieUrl()
+                req.movieUrl(),
+                req.maxPrice(),
+                req.minAvailableSeats()
         ));
         return ResponseEntity.ok(saved);
+    }
+
+    @GetMapping("/admin/summary")
+    public ResponseEntity<?> adminSummary(
+            @RequestHeader(value = "X-Admin-Token", required = false) String suppliedToken
+    ) {
+        if (!isAuthorized(adminToken, suppliedToken)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        List<WatchRule> all = repository.findAll();
+        long active = all.stream().filter(rule -> !rule.isAcknowledged()).count();
+        long paused = all.stream().filter(WatchRule::isAcknowledged).count();
+        return ResponseEntity.ok(Map.of(
+                "generatedAt", Instant.now(),
+                "totalWatches", all.size(),
+                "activeWatches", active,
+                "pausedWatches", paused,
+                "scraper", scraperService.getHealth()
+        ));
+    }
+
+    @GetMapping("/admin/watches")
+    public ResponseEntity<?> adminWatches(
+            @RequestHeader(value = "X-Admin-Token", required = false) String suppliedToken
+    ) {
+        if (!isAuthorized(adminToken, suppliedToken)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        return ResponseEntity.ok(repository.findAll());
     }
 
     @GetMapping("/watches")
@@ -103,6 +136,42 @@ public class WatchAndTelegramController {
             rule.setAcknowledged(true);
             repository.save(rule);
             return ResponseEntity.ok(Map.<String, Object>of("acknowledgedId", id, "status", "STOPPED"));
+        }).orElse(ResponseEntity.notFound().build());
+    }
+
+    @PostMapping("/watches/{id}/resume")
+    public ResponseEntity<Map<String, Object>> resumeWatch(
+            @RequestHeader(value = "X-Admin-Token", required = false) String suppliedToken,
+            @PathVariable Long id
+    ) {
+        if (!isAuthorized(adminToken, suppliedToken)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        return repository.findById(id).map(rule -> {
+            rule.setAcknowledged(false);
+            rule.setAlertCount(0);
+            rule.setLastAlertedAt(null);
+            rule.setSnoozedUntil(null);
+            repository.save(rule);
+            return ResponseEntity.ok(Map.<String, Object>of("resumedId", id, "status", "ACTIVE"));
+        }).orElse(ResponseEntity.notFound().build());
+    }
+
+    @PostMapping("/watches/{id}/snooze")
+    public ResponseEntity<Map<String, Object>> snoozeWatch(
+            @RequestHeader(value = "X-Admin-Token", required = false) String suppliedToken,
+            @PathVariable Long id,
+            @RequestParam(defaultValue = "15") int minutes
+    ) {
+        if (!isAuthorized(adminToken, suppliedToken)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        int safeMinutes = Math.max(1, Math.min(minutes, 1440));
+        return repository.findById(id).map(rule -> {
+            rule.setAcknowledged(false);
+            rule.setSnoozedUntil(Instant.now().plusSeconds(safeMinutes * 60L));
+            repository.save(rule);
+            return ResponseEntity.ok(Map.<String, Object>of("snoozedId", id, "minutes", safeMinutes, "status", "SNOOZED"));
         }).orElse(ResponseEntity.notFound().build());
     }
 
@@ -158,6 +227,12 @@ public class WatchAndTelegramController {
         }
         if (req.movieUrl() != null && !req.movieUrl().isBlank() && !scraperService.isAllowedMoviePageUrl(req.movieUrl())) {
             return "movieUrl must be an HTTPS movie page on www.district.in";
+        }
+        if (req.maxPrice() != null && (req.maxPrice().signum() <= 0 || req.maxPrice().scale() > 2)) {
+            return "maxPrice must be a positive amount with at most 2 decimal places";
+        }
+        if (req.minAvailableSeats() != null && (req.minAvailableSeats() < 0 || req.minAvailableSeats() > 1000)) {
+            return "minAvailableSeats must be between 0 and 1000";
         }
         return null;
     }

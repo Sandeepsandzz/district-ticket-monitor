@@ -1,6 +1,7 @@
 package com.district.monitor.entity;
 
 import jakarta.persistence.*;
+import java.math.BigDecimal;
 import java.time.Instant;
 
 @Entity
@@ -38,6 +39,12 @@ public class WatchRule {
     @Column
     private String movieUrl; // Cached District movie URL once discovered
 
+    @Column(precision = 10, scale = 2)
+    private BigDecimal maxPrice;
+
+    @Column
+    private Integer minAvailableSeats = 0;
+
     /**
      * Persistent notification tracking:
      * Alerts repeat until acknowledged == true (or alertCount >= maxAlerts)
@@ -69,7 +76,9 @@ public class WatchRule {
             String targetDate,
             String languageFilter,
             String formatFilter,
-            String movieUrl
+            String movieUrl,
+            BigDecimal maxPrice,
+            Integer minAvailableSeats
     ) {
         this.chatId = chatId;
         this.city = city != null ? city.trim().toLowerCase() : "vizag";
@@ -80,6 +89,8 @@ public class WatchRule {
         this.languageFilter = normalizeFilter(languageFilter);
         this.formatFilter = normalizeFilter(formatFilter);
         this.movieUrl = normalizeOptional(movieUrl);
+        this.maxPrice = normalizePrice(maxPrice);
+        this.minAvailableSeats = minAvailableSeats == null ? 0 : Math.max(0, minAvailableSeats);
         this.acknowledged = false;
         this.alertCount = 0;
         this.createdAt = Instant.now();
@@ -96,6 +107,25 @@ public class WatchRule {
             String movieUrl
     ) {
         this(chatId, city, movieName, theatreName, "ANY", targetDate, languageFilter, formatFilter, movieUrl);
+    }
+
+    public WatchRule(
+            String chatId,
+            String city,
+            String movieName,
+            String theatreName,
+            String screenFilter,
+            String targetDate,
+            String languageFilter,
+            String formatFilter,
+            String movieUrl
+    ) {
+        this(chatId, city, movieName, theatreName, screenFilter, targetDate, languageFilter, formatFilter,
+                movieUrl, null, 0);
+    }
+
+    private BigDecimal normalizePrice(BigDecimal value) {
+        return value == null || value.signum() <= 0 ? null : value.setScale(2, java.math.RoundingMode.HALF_UP);
     }
 
     private String normalizeOptional(String val) {
@@ -124,6 +154,10 @@ public class WatchRule {
     public String getFormatFilter() { return formatFilter; }
     public String getMovieUrl() { return movieUrl; }
     public void setMovieUrl(String movieUrl) { this.movieUrl = movieUrl; }
+    public BigDecimal getMaxPrice() { return maxPrice; }
+    public void setMaxPrice(BigDecimal maxPrice) { this.maxPrice = normalizePrice(maxPrice); }
+    public int getMinAvailableSeats() { return minAvailableSeats == null ? 0 : minAvailableSeats; }
+    public void setMinAvailableSeats(int minAvailableSeats) { this.minAvailableSeats = Math.max(0, minAvailableSeats); }
     public boolean isAcknowledged() { return acknowledged; }
     public void setAcknowledged(boolean acknowledged) { this.acknowledged = acknowledged; }
     public int getAlertCount() { return alertCount; }

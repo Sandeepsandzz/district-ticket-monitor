@@ -88,12 +88,8 @@ public class TicketWatchScheduler {
 
             try {
                 Thread.sleep(ThreadLocalRandom.current().nextLong(400, 1500));
-            } catch (InterruptedException ie) {
-                Thread.currentThread().interrupt();
-                break;
-            }
 
-            AvailabilityCheckResult result = scraperService.checkWatchRule(rule);
+                AvailabilityCheckResult result = scraperService.checkWatchRule(rule);
 
             // Cache discovered movie URL if valid movie page (not seat-layout or root /movies)
             if (rule.getMovieUrl() == null && result.bookingUrl() != null && result.bookingUrl().contains("-movie-tickets-")) {
@@ -126,6 +122,7 @@ public class TicketWatchScheduler {
                         🕒 <b>Showtimes:</b> %s
                         📅 <b>Date Filter:</b> %s
                         🗣 <b>Language:</b> %s | 🎞 <b>Format:</b> %s
+                        💰 <b>Price:</b> %s | 💺 <b>Seats:</b> %s
 
                         <i>Tap <b>Acknowledge &amp; Stop Alerts</b> below once you've seen this!</i>
                         """.formatted(
@@ -138,12 +135,16 @@ public class TicketWatchScheduler {
                         escapeHtml(showtimesStr),
                         escapeHtml(rule.getTargetDate()),
                         escapeHtml(rule.getLanguageFilter()),
-                        escapeHtml(rule.getFormatFilter())
+                        escapeHtml(rule.getFormatFilter()),
+                        escapeHtml(rule.getMaxPrice() == null ? "Any" : "≤₹" + rule.getMaxPrice().stripTrailingZeros().toPlainString()),
+                        escapeHtml(rule.getMinAvailableSeats() <= 0 ? "Any" : "≥" + rule.getMinAvailableSeats())
                 );
 
-                String plainMsg = "TICKETS AVAILABLE: %s in %s | Theatres: %s | Screen: %s | Showtimes: %s | Date: %s | Lang: %s | Format: %s"
+                String plainMsg = "TICKETS AVAILABLE: %s in %s | Theatres: %s | Screen: %s | Showtimes: %s | Date: %s | Lang: %s | Format: %s | Price: %s | Seats: %s"
                         .formatted(rule.getMovieName(), rule.getCity().toUpperCase(), theatresStr, screensStr, showtimesStr,
-                                rule.getTargetDate(), rule.getLanguageFilter(), rule.getFormatFilter());
+                                rule.getTargetDate(), rule.getLanguageFilter(), rule.getFormatFilter(),
+                                rule.getMaxPrice() == null ? "Any" : "≤₹" + rule.getMaxPrice().stripTrailingZeros().toPlainString(),
+                                rule.getMinAvailableSeats() <= 0 ? "Any" : "≥" + rule.getMinAvailableSeats());
 
                 notificationDispatcher.dispatchAlert(rule, htmlMsg, plainMsg, result.bookingUrl());
 
@@ -154,6 +155,13 @@ public class TicketWatchScheduler {
                 }
                 repository.save(rule);
                 notificationsSent++;
+            }
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                break;
+            } catch (Exception e) {
+                log.warn("Ticket poll failed for watch #{} (movie={}): {}. Continuing with remaining watches.",
+                        rule.getId(), rule.getMovieName(), e.getMessage());
             }
         }
         return notificationsSent;

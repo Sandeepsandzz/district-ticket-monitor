@@ -1,20 +1,24 @@
 package com.district.monitor.service;
 
 import com.district.monitor.dto.AvailabilityCheckResult;
+import com.district.monitor.dto.ScraperHealth;
 import com.district.monitor.entity.WatchRule;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.net.URI;
 import java.time.LocalDateTime;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
@@ -53,11 +57,17 @@ public class DistrictScraperService {
     );
 
     private final String baseUrl;
+    private final int maxAttempts;
+    private final long retryBackoffMs;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     // Cache of discovered movies in Vizag: title -> url
     private volatile List<Map<String, String>> cachedVizagMovies = new ArrayList<>();
     private volatile long lastMoviesCacheTime = 0;
+    private volatile Instant lastSuccessAt;
+    private volatile Instant lastFailureAt;
+    private volatile int consecutiveFailures;
+    private volatile String lastFailureMessage;
 
     public record ScreeningRecord(
             String title,
@@ -67,13 +77,29 @@ public class DistrictScraperService {
             String format,
             String audi,
             String language,
-            String bookingUrl
+            String bookingUrl,
+            BigDecimal price,
+            Integer availableSeats
     ) {}
 
+    @Autowired
     public DistrictScraperService(
-            @Value("${district.base-url:https://www.district.in/movies}") String baseUrl
+            @Value("${district.base-url:https://www.district.in/movies}") String baseUrl,
+            @Value("${district.scraper.max-attempts:3}") int maxAttempts,
+            @Value("${district.scraper.retry-backoff-ms:750}") long retryBackoffMs
     ) {
         this.baseUrl = baseUrl;
+        this.maxAttempts = Math.max(1, maxAttempts);
+        this.retryBackoffMs = Math.max(0, retryBackoffMs);
+    }
+
+    public DistrictScraperService(String baseUrl) {
+        this(baseUrl, 3, 750);
+    }
+
+    public ScraperHealth getHealth() {
+        String status = consecutiveFailures == 0 ? "UP" : (lastSuccessAt == null ? "DOWN" : "DEGRADED");
+        return new ScraperHealth(status, lastSuccessAt, lastFailureAt, consecutiveFailures, lastFailureMessage);
     }
 
     /**
@@ -88,11 +114,7 @@ public class DistrictScraperService {
         Map<String, Map<String, String>> movieMap = new LinkedHashMap<>();
         try {
             String vizagUrl = baseUrl.endsWith("/movies") ? baseUrl + "/vizag-movie-tickets" : baseUrl + "/movies/vizag-movie-tickets";
-            Document doc = Jsoup.connect(vizagUrl)
-                    .userAgent(randomUserAgent())
-                    .cookie("city", "vizag")
-                    .timeout(15_000)
-                    .get();
+            Document doc = fetchDocument(vizagUrl, 15_000, "movie catalogue");
 
             String rawHtml = doc.html();
             long nowEpochSec = System.currentTimeMillis() / 1000L;
@@ -159,6 +181,9 @@ public class DistrictScraperService {
             }
         } catch (Exception e) {
             log.warn("Could not fetch dynamic Vizag movies from District: {}", e.getMessage());
+            // Keep the last known-good catalogue rather than replacing it with an empty result.
+            lastMoviesCacheTime = now;
+            return cachedVizagMovies;
         }
 
         cachedVizagMovies = new ArrayList<>(movieMap.values());
@@ -261,11 +286,7 @@ public class DistrictScraperService {
         try {
             String targetUrl = normalizeToVizagUrl(movieUrl);
             if (!isAllowedMoviePageUrl(targetUrl)) return List.of();
-            Document doc = Jsoup.connect(targetUrl)
-                    .userAgent(randomUserAgent())
-                    .cookie("city", "vizag")
-                    .timeout(10_000)
-                    .get();
+            Document doc = fetchDocument(targetUrl, 10_000, "screen discovery");
 
             String rawHtml = doc.html();
             List<ScreeningRecord> allScreenings = extractScreeningsFromPage(doc, rawHtml, "");
@@ -314,11 +335,7 @@ public class DistrictScraperService {
             // If zero screenings on the base page and rule allows ANY date, check if showDates exists on page (e.g. upcoming release date)
             if (!res.isAvailable() && (rule.getTargetDate() == null || "ANY".equalsIgnoreCase(rule.getTargetDate()))) {
                 try {
-                    Document doc = Jsoup.connect(targetUrl)
-                            .userAgent(randomUserAgent())
-                            .cookie("city", "vizag")
-                            .timeout(10_000)
-                            .get();
+                    Document doc = fetchDocument(targetUrl, 10_000, "release-date discovery");
                     String raw = doc.html();
                     Matcher sdm = Pattern.compile("\"showDates\":\\[\"([0-9]{4}-[0-9]{2}-[0-9]{2})\"").matcher(raw);
                     if (sdm.find()) {
@@ -382,11 +399,7 @@ public class DistrictScraperService {
         if (!isAllowedMoviePageUrl(movieUrl)) {
             throw new IOException("Rejected non-District movie URL");
         }
-        Document doc = Jsoup.connect(movieUrl)
-                .userAgent(randomUserAgent())
-                .cookie("city", "vizag")
-                .timeout(15_000)
-                .get();
+        Document doc = fetchDocument(movieUrl, 15_000, "movie page");
 
         String rawHtml = doc.html();
         List<ScreeningRecord> allScreenings = extractScreeningsFromPage(doc, rawHtml, rule.getMovieName());
@@ -405,6 +418,8 @@ public class DistrictScraperService {
                 .filter(s -> matchesFormat(s, rule.getFormatFilter()))
                 .filter(s -> matchesTheatre(s, rule.getTheatreName()))
                 .filter(s -> matchesScreen(s, rule.getScreenFilter()))
+                .filter(s -> matchesPrice(s, rule.getMaxPrice()))
+                .filter(s -> matchesAvailableSeats(s, rule.getMinAvailableSeats()))
                 .toList();
 
         if (matched.isEmpty()) {
@@ -486,13 +501,16 @@ public class DistrictScraperService {
                                         String mcd = s.path("mcd").asText("").trim();
 
                                         String audi = formatAudi(audiRaw, premiumLabel);
+                                        BigDecimal price = extractPrice(s);
+                                        Integer availableSeats = extractAvailableSeats(s);
                                         String[] dt = parseDateTimeIst(showTimeRaw);
 
                                         String seatLink = "https://www.district.in/movies/seat-layout/" + mcd
                                                 + "?encsessionid=" + encSessionId + "&freeseating=false&fromsessions=true&type=MOVIES";
 
                                         screenings.add(new ScreeningRecord(
-                                                fallbackTitle, dt[0], dt[1], cinemaName, format, audi, language, seatLink
+                                                fallbackTitle, dt[0], dt[1], cinemaName, format, audi, language, seatLink,
+                                                price, availableSeats
                                         ));
                                     }
                                 }
@@ -519,13 +537,15 @@ public class DistrictScraperService {
                 String mcd = sm.group(7).trim();
 
                 String audi = formatAudiWithLabel(audiRaw, sessionRest);
+                BigDecimal price = extractPrice(sessionRest);
+                Integer availableSeats = extractAvailableSeats(sessionRest);
                 String[] dt = parseDateTimeIst(showTimeRaw);
 
                 String seatLink = "https://www.district.in/movies/seat-layout/" + mcd
                         + "?encsessionid=" + encSessionId + "&freeseating=false&fromsessions=true&type=MOVIES";
 
                 screenings.add(new ScreeningRecord(
-                        fallbackTitle, dt[0], dt[1], cinema, format, audi, language, seatLink
+                        fallbackTitle, dt[0], dt[1], cinema, format, audi, language, seatLink, price, availableSeats
                 ));
             }
         }
@@ -590,6 +610,8 @@ public class DistrictScraperService {
         String bookingUrl = node.path("offers").path("url").asText("");
         String language = node.path("inLanguage").asText("");
         if (language.isBlank()) language = extractLanguage(node);
+        BigDecimal price = extractPrice(node.path("offers"));
+        Integer availableSeats = extractAvailableSeats(node);
 
         String[] dt = parseDateTimeIst(startIso);
 
@@ -598,7 +620,7 @@ public class DistrictScraperService {
         }
 
         list.add(new ScreeningRecord(title, dt[0], dt[1], cinemaName, format, "Main Screen",
-                language == null || language.isBlank() ? null : language, bookingUrl));
+                language == null || language.isBlank() ? null : language, bookingUrl, price, availableSeats));
     }
 
     private boolean matchesDate(ScreeningRecord record, String targetDate) {
@@ -696,6 +718,156 @@ public class DistrictScraperService {
         if (sf.contains("led") && ra.contains("led")) return true;
 
         return false;
+    }
+
+    private boolean matchesPrice(ScreeningRecord record, BigDecimal maxPrice) {
+        if (maxPrice == null || maxPrice.signum() <= 0) return true;
+        return record.price() != null && record.price().compareTo(maxPrice) <= 0;
+    }
+
+    private boolean matchesAvailableSeats(ScreeningRecord record, int minAvailableSeats) {
+        if (minAvailableSeats <= 0) return true;
+        return record.availableSeats() != null && record.availableSeats() >= minAvailableSeats;
+    }
+
+    private BigDecimal extractPrice(JsonNode node) {
+        JsonNode value = findFirstValue(node, Set.of(
+                "price", "ticketprice", "ticket_price", "minprice", "baseprice", "finalprice", "amount", "pricevalue",
+                "minfare", "fare", "basefare", "netamount", "ticketamount"
+        ));
+        return parseDecimal(value);
+    }
+
+    private BigDecimal extractPrice(String text) {
+        if (text == null || text.isBlank()) return null;
+        Matcher matcher = Pattern.compile("\\\"(?:price|ticketPrice|ticket_price|minPrice|basePrice|finalPrice|amount|minFare|fare|baseFare|netAmount|ticketAmount)\\\"\\s*:\\s*\\\"?([0-9]+(?:\\.[0-9]+)?)", Pattern.CASE_INSENSITIVE)
+                .matcher(text);
+        return matcher.find() ? parseDecimal(matcher.group(1)) : null;
+    }
+
+    private Integer extractAvailableSeats(JsonNode node) {
+        JsonNode value = findFirstValue(node, Set.of(
+                "availableseats", "availableseatcount", "seatsavailable", "freeseats", "availabletickets", "availableticketcount",
+                "availablecount", "freeseatcount", "vacantseats", "bookableseats"
+        ));
+        Integer direct = parseInteger(value);
+        if (direct != null) return direct;
+
+        JsonNode seats = findFirstValue(node, Set.of("seatlayout", "seatlist", "seats"));
+        if (seats != null && seats.isArray()) {
+            int count = 0;
+            for (JsonNode seat : seats) {
+                String status = seat.isObject()
+                        ? seat.path("status").asText(seat.path("availability").asText(""))
+                        : seat.asText("");
+                boolean available = status.isBlank()
+                        ? seat.path("isAvailable").asBoolean(false)
+                        : status.toLowerCase().contains("available") || status.equalsIgnoreCase("free");
+                if (available) count++;
+            }
+            return count;
+        }
+        return null;
+    }
+
+    private Integer extractAvailableSeats(String text) {
+        if (text == null || text.isBlank()) return null;
+        Matcher matcher = Pattern.compile("\\\"(?:availableSeats|availableSeatCount|seatsAvailable|freeSeats|availableTickets|availableTicketCount|availableCount|freeSeatCount|vacantSeats|bookableSeats)\\\"\\s*:\\s*\\\"?([0-9]+)", Pattern.CASE_INSENSITIVE)
+                .matcher(text);
+        return matcher.find() ? parseInteger(matcher.group(1)) : null;
+    }
+
+    private JsonNode findFirstValue(JsonNode node, Set<String> keys) {
+        if (node == null || node.isMissingNode() || node.isNull()) return null;
+        if (node.isObject()) {
+            Iterator<Map.Entry<String, JsonNode>> fields = node.fields();
+            while (fields.hasNext()) {
+                Map.Entry<String, JsonNode> entry = fields.next();
+                String normalized = entry.getKey().replaceAll("[^A-Za-z0-9]", "").toLowerCase(Locale.ROOT);
+                if (keys.contains(normalized)) return entry.getValue();
+                JsonNode nested = findFirstValue(entry.getValue(), keys);
+                if (nested != null) return nested;
+            }
+        } else if (node.isArray()) {
+            for (JsonNode item : node) {
+                JsonNode nested = findFirstValue(item, keys);
+                if (nested != null) return nested;
+            }
+        }
+        return null;
+    }
+
+    private BigDecimal parseDecimal(JsonNode node) {
+        if (node == null || node.isMissingNode() || node.isNull()) return null;
+        if (node.isObject()) {
+            for (String key : List.of("value", "amount", "price", "fare")) {
+                BigDecimal parsed = parseDecimal(node.path(key));
+                if (parsed != null) return parsed;
+            }
+            return null;
+        }
+        return parseDecimal(node.asText());
+    }
+
+    private BigDecimal parseDecimal(String value) {
+        if (value == null || value.isBlank()) return null;
+        try {
+            BigDecimal parsed = new BigDecimal(value.replaceAll("[^0-9.]", ""));
+            return parsed.signum() > 0 ? parsed : null;
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private Integer parseInteger(JsonNode node) {
+        return node == null || node.isMissingNode() || node.isNull() ? null : parseInteger(node.asText());
+    }
+
+    private Integer parseInteger(String value) {
+        if (value == null || value.isBlank()) return null;
+        try {
+            return Math.max(0, Integer.parseInt(value.replaceAll("[^0-9]", "")));
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private Document fetchDocument(String url, int timeoutMillis, String operation) throws IOException {
+        IOException lastFailure = null;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                Document document = Jsoup.connect(url)
+                        .userAgent(randomUserAgent())
+                        .cookie("city", "vizag")
+                        .timeout(timeoutMillis)
+                        .get();
+                lastSuccessAt = java.time.Instant.now();
+                consecutiveFailures = 0;
+                lastFailureMessage = null;
+                return document;
+            } catch (IOException e) {
+                lastFailure = e;
+                if (attempt < maxAttempts) {
+                    log.warn("District {} attempt {}/{} failed: {}. Retrying...", operation, attempt, maxAttempts, e.getMessage());
+                    sleepBeforeRetry(attempt);
+                }
+            }
+        }
+
+        consecutiveFailures++;
+        lastFailureAt = java.time.Instant.now();
+        lastFailureMessage = lastFailure == null ? "Unknown scraper failure" : lastFailure.getMessage();
+        log.error("District {} failed after {} attempt(s): {}", operation, maxAttempts, lastFailureMessage);
+        throw lastFailure == null ? new IOException("District scraper failed") : lastFailure;
+    }
+
+    private void sleepBeforeRetry(int attempt) {
+        try {
+            long delay = retryBackoffMs * (1L << Math.min(attempt - 1, 5));
+            Thread.sleep(delay);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private String formatAudi(String audiRaw, String premiumLabel) {

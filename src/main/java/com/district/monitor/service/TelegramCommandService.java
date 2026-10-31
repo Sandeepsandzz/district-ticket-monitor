@@ -9,6 +9,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -58,26 +59,42 @@ public class TelegramCommandService {
         String text = message.has("text") ? message.get("text").asText().trim() : "";
 
         // Handle persistent dock button taps or slash commands
-        if (text.contains("New Movie Alert") || text.startsWith("/new")) {
+        if (isCommand(text, "pause")) {
+            handlePauseCommand(chatId, commandArguments(text));
+            return;
+        } else if (isCommand(text, "resume")) {
+            handleResumeCommand(chatId, commandArguments(text));
+            return;
+        } else if (isCommand(text, "delete")) {
+            handleDeleteCommand(chatId, commandArguments(text));
+            return;
+        } else if (isCommand(text, "snooze")) {
+            handleSnoozeCommand(chatId, commandArguments(text));
+            return;
+        } else if (text.contains("New Movie Alert") || isCommand(text, "new")) {
             sessions.remove(chatId);
             startNewWatchWizard(chatId);
             return;
-        } else if (text.contains("Active Alerts") || text.contains("My Alerts") || text.startsWith("/list")) {
+        } else if (text.contains("Active Alerts") || text.contains("My Alerts") || isCommand(text, "list") || isCommand(text, "mywatches")) {
             sessions.remove(chatId);
             sendActiveWatchesMenu(chatId);
             return;
-        } else if (text.contains("Check Tickets") || text.contains("Check Now") || text.startsWith("/check")) {
+        } else if (text.contains("Check Tickets") || text.contains("Check Now") || isCommand(text, "check")) {
             sessions.remove(chatId);
             int sent = scheduler.pollActiveWatchesForChat(chatId);
             telegramService.sendMessage(chatId, "🔄 <b>Checked District (Vizag)!</b> Notifications triggered: " + sent);
             return;
-        } else if (text.contains("Clear All") || text.startsWith("/clear")) {
+        } else if (text.contains("Clear All") || isCommand(text, "clear")) {
             sessions.remove(chatId);
             promptClearAllConfirmation(chatId);
             return;
-        } else if (text.contains("Main Menu") || text.startsWith("/start") || text.startsWith("/menu") || text.startsWith("/help")) {
+        } else if (text.contains("Main Menu") || isCommand(text, "start") || isCommand(text, "menu")) {
             sessions.remove(chatId);
             sendMainMenu(chatId);
+            return;
+        } else if (isCommand(text, "help")) {
+            sessions.remove(chatId);
+            sendHelp(chatId);
             return;
         }
 
@@ -90,6 +107,99 @@ public class TelegramCommandService {
 
         // Default: display main menu buttons and dock persistent buttons
         sendMainMenu(chatId);
+    }
+
+    private boolean isCommand(String text, String command) {
+        if (text == null || text.isBlank()) return false;
+        String firstToken = text.trim().split("\\s+", 2)[0];
+        return firstToken.equalsIgnoreCase("/" + command)
+                || firstToken.toLowerCase(Locale.ROOT).startsWith("/" + command.toLowerCase(Locale.ROOT) + "@");
+    }
+
+    private String commandArguments(String text) {
+        String[] parts = text.trim().split("\\s+", 2);
+        return parts.length == 2 ? parts[1].trim() : "";
+    }
+
+    private Long parseWatchId(String chatId, String arguments, String usage) {
+        try {
+            if (arguments == null || arguments.isBlank()) throw new NumberFormatException();
+            return Long.parseLong(arguments.split("\\s+")[0]);
+        } catch (NumberFormatException e) {
+            telegramService.sendMessage(chatId, "⚠️ Usage: <code>" + usage + "</code>");
+            return null;
+        }
+    }
+
+    private void handlePauseCommand(String chatId, String arguments) {
+        Long id = parseWatchId(chatId, arguments, "/pause WATCH_ID");
+        if (id == null) return;
+        repository.findByIdAndChatId(id, chatId).ifPresentOrElse(rule -> {
+            rule.setAcknowledged(true);
+            rule.setSnoozedUntil(null);
+            repository.save(rule);
+            telegramService.sendMessage(chatId, "⏸ <b>Paused Watch #" + id + "</b> for " + escapeHtml(rule.getMovieName()) + ". Use <code>/resume " + id + "</code> to restart it.");
+        }, () -> telegramService.sendMessage(chatId, "⚠️ Watch #" + id + " was not found."));
+    }
+
+    private void handleResumeCommand(String chatId, String arguments) {
+        Long id = parseWatchId(chatId, arguments, "/resume WATCH_ID");
+        if (id == null) return;
+        repository.findByIdAndChatId(id, chatId).ifPresentOrElse(rule -> {
+            rule.setAcknowledged(false);
+            rule.setAlertCount(0);
+            rule.setLastAlertedAt(null);
+            rule.setSnoozedUntil(null);
+            repository.save(rule);
+            telegramService.sendMessage(chatId, "▶️ <b>Resumed Watch #" + id + "</b> for " + escapeHtml(rule.getMovieName()) + ".");
+        }, () -> telegramService.sendMessage(chatId, "⚠️ Watch #" + id + " was not found."));
+    }
+
+    private void handleDeleteCommand(String chatId, String arguments) {
+        Long id = parseWatchId(chatId, arguments, "/delete WATCH_ID");
+        if (id == null) return;
+        repository.findByIdAndChatId(id, chatId).ifPresentOrElse(rule -> {
+            repository.delete(rule);
+            telegramService.sendMessage(chatId, "🗑 Deleted Watch #" + id + " (" + escapeHtml(rule.getMovieName()) + ").");
+        }, () -> telegramService.sendMessage(chatId, "⚠️ Watch #" + id + " was not found."));
+    }
+
+    private void handleSnoozeCommand(String chatId, String arguments) {
+        Long id = parseWatchId(chatId, arguments, "/snooze WATCH_ID [MINUTES]");
+        if (id == null) return;
+        String[] parts = arguments.trim().split("\\s+");
+        int minutes = 15;
+        if (parts.length > 1) {
+            try {
+                minutes = Integer.parseInt(parts[1]);
+            } catch (NumberFormatException e) {
+                telegramService.sendMessage(chatId, "⚠️ Minutes must be a number between 1 and 1440.");
+                return;
+            }
+        }
+        minutes = Math.max(1, Math.min(minutes, 1440));
+        final int snoozeMinutes = minutes;
+        repository.findByIdAndChatId(id, chatId).ifPresentOrElse(rule -> {
+            rule.setAcknowledged(false);
+            rule.setSnoozedUntil(Instant.now().plus(snoozeMinutes, ChronoUnit.MINUTES));
+            repository.save(rule);
+            telegramService.sendMessage(chatId, "⏸ <b>Snoozed Watch #" + id + "</b> for " + snoozeMinutes + " minute(s).");
+        }, () -> telegramService.sendMessage(chatId, "⚠️ Watch #" + id + " was not found."));
+    }
+
+    private void sendHelp(String chatId) {
+        telegramService.sendMessage(chatId, """
+                🧭 <b>Watch Management Commands</b>
+
+                <code>/new</code> — create a movie watch
+                <code>/mywatches</code> — list active and paused watches
+                <code>/pause ID</code> — pause a watch
+                <code>/resume ID</code> — resume a watch
+                <code>/snooze ID MINUTES</code> — temporarily silence a watch
+                <code>/delete ID</code> — delete a watch
+                <code>/check</code> — check your watches immediately
+                <code>/clear</code> — delete all your watches
+                """);
     }
 
     public void sendMainMenu(String chatId) {
@@ -138,7 +248,7 @@ public class TelegramCommandService {
         Set<String> seenMovies = new HashSet<>();
 
         String msg = """
-                🎬 <b>Step 1/6: Select Movie in Vizag</b>
+                🎬 <b>Step 1/8: Select Movie in Vizag</b>
                 📍 City: <b>VISAKHAPATNAM (VIZAG)</b>
 
                 Choose from <b>Now Showing</b> (🎥) or <b>Upcoming Releases</b> (🚀) below:
@@ -206,7 +316,7 @@ public class TelegramCommandService {
     private void promptForTheatreSelection(String chatId, WizardSession session) {
         session.setStep(Step.AWAITING_THEATRE_CHOICE);
         String msg = """
-                🏛 <b>Step 2/6: Select Theatre Preference</b>
+                🏛 <b>Step 2/8: Select Theatre Preference</b>
                 Movie: <b>%s</b>
 
                 💡 <b>For Upcoming Releases:</b> Choose <b>All Theatres in Vizag</b> so as soon as ANY cinema releases tickets, you are alerted immediately!
@@ -251,7 +361,7 @@ public class TelegramCommandService {
                 ? "Any Theatre in Vizag" : session.getTheatreName();
 
         String msg = """
-                🖥 <b>Step 3/6: Select Screen Filter</b>
+                🖥 <b>Step 3/8: Select Screen Filter</b>
                 Movie: <b>%s</b> | Theatre: <b>%s</b>
 
                 Choose which screen you want to monitor, or pick Any Screen:
@@ -380,7 +490,7 @@ public class TelegramCommandService {
                 ? "Any Screen" : session.getScreenFilter();
 
         String msg = """
-                📅 <b>Step 4/6: Select Date Filter</b>
+                📅 <b>Step 4/8: Select Date Filter</b>
                 Movie: <b>%s</b> | Theatre: <b>%s</b> | Screen: <b>%s</b>
                 """.formatted(escapeHtml(session.getMovieName()), escapeHtml(theatreLabel), escapeHtml(screenLabel));
 
@@ -412,7 +522,7 @@ public class TelegramCommandService {
                 ? "Any Screen" : session.getScreenFilter();
 
         String msg = """
-                🗣 <b>Step 5/6: Select Language Filter</b>
+                🗣 <b>Step 5/8: Select Language Filter</b>
                 Movie: <b>%s</b> | Date: <b>%s</b> | Screen: <b>%s</b>
                 """.formatted(escapeHtml(session.getMovieName()), escapeHtml(session.getTargetDate()), escapeHtml(screenLabel));
 
@@ -438,7 +548,7 @@ public class TelegramCommandService {
     private void promptForFormatSelection(String chatId, WizardSession session) {
         session.setStep(Step.AWAITING_FORMAT_CHOICE);
         String msg = """
-                🎞 <b>Step 6/6: Select Screen Format</b>
+                🎞 <b>Step 6/8: Select Screen Format</b>
                 Movie: <b>%s</b> | Language: <b>%s</b>
                 """.formatted(escapeHtml(session.getMovieName()), escapeHtml(session.getLanguageFilter()));
 
@@ -461,6 +571,43 @@ public class TelegramCommandService {
         telegramService.sendWithInlineKeyboard(chatId, msg, keyboard);
     }
 
+    private void promptForPriceSelection(String chatId, WizardSession session) {
+        session.setStep(Step.AWAITING_PRICE_CHOICE);
+        String msg = """
+                💰 <b>Step 7/8: Maximum Ticket Price</b>
+                Movie: <b>%s</b> | Format: <b>%s</b>
+
+                Choose a maximum ticket price. If District does not publish a price for a show, it will not match a price-limited watch.
+                """.formatted(escapeHtml(session.getMovieName()), escapeHtml(session.getFormatFilter()));
+        List<List<Map<String, Object>>> keyboard = List.of(
+                List.of(Map.of("text", "💰 Any Price", "callback_data", "wiz_price:ANY")),
+                List.of(Map.of("text", "₹150 or less", "callback_data", "wiz_price:150"), Map.of("text", "₹250 or less", "callback_data", "wiz_price:250")),
+                List.of(Map.of("text", "₹400 or less", "callback_data", "wiz_price:400"), Map.of("text", "₹600 or less", "callback_data", "wiz_price:600")),
+                List.of(Map.of("text", "✍️ Type Maximum Price", "callback_data", "wiz_price:__custom__")),
+                List.of(Map.of("text", "❌ Cancel", "callback_data", "menu:cancel"))
+        );
+        telegramService.sendWithInlineKeyboard(chatId, msg, keyboard);
+    }
+
+    private void promptForSeatSelection(String chatId, WizardSession session) {
+        session.setStep(Step.AWAITING_SEATS_CHOICE);
+        String priceLabel = session.getMaxPrice() == null ? "Any Price" : "₹" + session.getMaxPrice().stripTrailingZeros().toPlainString() + " max";
+        String msg = """
+                💺 <b>Step 8/8: Minimum Available Seats</b>
+                Movie: <b>%s</b> | Price: <b>%s</b>
+
+                Choose the minimum number of seats that must be available. If seat counts are unavailable, it will not match a seat-limited watch.
+                """.formatted(escapeHtml(session.getMovieName()), escapeHtml(priceLabel));
+        List<List<Map<String, Object>>> keyboard = List.of(
+                List.of(Map.of("text", "💺 Any Availability", "callback_data", "wiz_seats:0")),
+                List.of(Map.of("text", "At least 1 seat", "callback_data", "wiz_seats:1"), Map.of("text", "At least 2 seats", "callback_data", "wiz_seats:2")),
+                List.of(Map.of("text", "At least 4 seats", "callback_data", "wiz_seats:4"), Map.of("text", "At least 6 seats", "callback_data", "wiz_seats:6")),
+                List.of(Map.of("text", "✍️ Type Minimum Seats", "callback_data", "wiz_seats:__custom__")),
+                List.of(Map.of("text", "❌ Cancel", "callback_data", "menu:cancel"))
+        );
+        telegramService.sendWithInlineKeyboard(chatId, msg, keyboard);
+    }
+
     private void finalizeWatchFromWizard(String chatId, WizardSession session) {
         // Prevent duplicate watch rules for the same movie, theatre, screen, and date
         List<WatchRule> existingRules = repository.findByChatIdAndMovieNameIgnoreCaseAndAcknowledgedFalse(chatId, session.getMovieName());
@@ -470,7 +617,9 @@ public class TelegramCommandService {
             boolean sameScreen = Objects.equals(ex.getScreenFilter(), session.getScreenFilter());
             boolean sameLanguage = Objects.equals(ex.getLanguageFilter(), session.getLanguageFilter());
             boolean sameFormat = Objects.equals(ex.getFormatFilter(), session.getFormatFilter());
-            if (sameTheatre && sameDate && sameScreen && sameLanguage && sameFormat) {
+            boolean samePrice = Objects.equals(ex.getMaxPrice(), session.getMaxPrice());
+            boolean sameSeats = ex.getMinAvailableSeats() == session.getMinAvailableSeats();
+            if (sameTheatre && sameDate && sameScreen && sameLanguage && sameFormat && samePrice && sameSeats) {
                 sessions.remove(chatId);
                 String dupMsg = """
                         ⚠️ <b>Alert Already Active!</b>
@@ -501,7 +650,9 @@ public class TelegramCommandService {
                 session.getTargetDate(),
                 session.getLanguageFilter(),
                 session.getFormatFilter(),
-                session.getMovieUrl()
+                session.getMovieUrl(),
+                session.getMaxPrice(),
+                session.getMinAvailableSeats()
         ));
         sessions.remove(chatId);
 
@@ -515,6 +666,8 @@ public class TelegramCommandService {
                 📅 <b>Date:</b> %s
                 🗣 <b>Language:</b> %s
                 🎞 <b>Format:</b> %s
+                💰 <b>Max Price:</b> %s
+                💺 <b>Minimum Seats:</b> %s
 
                 🔔 <i>Persistent alerts are ON — as soon as tickets open in Vizag, you'll be notified repeatedly with direct seat booking links!</i>
                 """.formatted(
@@ -524,7 +677,9 @@ public class TelegramCommandService {
                 escapeHtml((saved.getScreenFilter() == null || saved.getScreenFilter().equalsIgnoreCase("ANY")) ? "Any Screen" : saved.getScreenFilter()),
                 escapeHtml(saved.getTargetDate()),
                 escapeHtml(saved.getLanguageFilter()),
-                escapeHtml(saved.getFormatFilter())
+                escapeHtml(saved.getFormatFilter()),
+                escapeHtml(saved.getMaxPrice() == null ? "Any Price" : "₹" + saved.getMaxPrice().stripTrailingZeros().toPlainString()),
+                escapeHtml(saved.getMinAvailableSeats() <= 0 ? "Any Availability" : "At least " + saved.getMinAvailableSeats())
         );
 
         List<List<Map<String, Object>>> keyboard = List.of(
@@ -576,6 +731,30 @@ public class TelegramCommandService {
                     return;
                 }
                 promptForLanguageSelection(chatId, session);
+            }
+            case AWAITING_CUSTOM_PRICE -> {
+                try {
+                    BigDecimal parsed = new BigDecimal(text.trim());
+                    if (parsed.signum() <= 0 || parsed.scale() > 2 || parsed.compareTo(new BigDecimal("100000")) > 0) {
+                        throw new NumberFormatException();
+                    }
+                    session.setMaxPrice(parsed);
+                } catch (NumberFormatException e) {
+                    telegramService.sendMessage(chatId, "⚠️ Enter a positive price with up to 2 decimals (for example <code>350</code>):");
+                    return;
+                }
+                promptForSeatSelection(chatId, session);
+            }
+            case AWAITING_CUSTOM_SEATS -> {
+                try {
+                    int seats = Integer.parseInt(text.trim());
+                    if (seats < 0 || seats > 1000) throw new NumberFormatException();
+                    session.setMinAvailableSeats(seats);
+                } catch (NumberFormatException e) {
+                    telegramService.sendMessage(chatId, "⚠️ Enter a whole number of seats between 0 and 1000:");
+                    return;
+                }
+                finalizeWatchFromWizard(chatId, session);
             }
             default -> sendMainMenu(chatId);
         }
@@ -684,7 +863,27 @@ public class TelegramCommandService {
             String fmt = data.substring("wiz_fmt:".length());
             WizardSession session = sessions.computeIfAbsent(chatId, k -> new WizardSession());
             session.setFormatFilter(fmt);
-            finalizeWatchFromWizard(chatId, session);
+            promptForPriceSelection(chatId, session);
+        } else if (data.startsWith("wiz_price:")) {
+            String price = data.substring("wiz_price:".length());
+            WizardSession session = sessions.computeIfAbsent(chatId, k -> new WizardSession());
+            if ("__custom__".equals(price)) {
+                session.setStep(Step.AWAITING_CUSTOM_PRICE);
+                telegramService.sendMessage(chatId, "✍️ Type the maximum ticket price in rupees (for example <code>350</code>):");
+            } else {
+                session.setMaxPrice("ANY".equalsIgnoreCase(price) ? null : new BigDecimal(price));
+                promptForSeatSelection(chatId, session);
+            }
+        } else if (data.startsWith("wiz_seats:")) {
+            String seats = data.substring("wiz_seats:".length());
+            WizardSession session = sessions.computeIfAbsent(chatId, k -> new WizardSession());
+            if ("__custom__".equals(seats)) {
+                session.setStep(Step.AWAITING_CUSTOM_SEATS);
+                telegramService.sendMessage(chatId, "✍️ Type the minimum number of available seats (0 for any availability):");
+            } else {
+                session.setMinAvailableSeats(Integer.parseInt(seats));
+                finalizeWatchFromWizard(chatId, session);
+            }
         } else if (data.startsWith("ack:")) {
             Long id = Long.parseLong(data.substring("ack:".length()));
             repository.findByIdAndChatId(id, chatId).ifPresentOrElse(rule -> {
@@ -696,6 +895,26 @@ public class TelegramCommandService {
                 ));
                 telegramService.sendMessage(chatId, "🛑 <b>Acknowledged!</b> Stopped persistent alerts for <b>" + escapeHtml(rule.getMovieName()) + "</b> (Watch #" + id + ").");
             }, () -> telegramService.sendMessage(chatId, "⚠️ Watch #" + id + " not found or already closed."));
+        } else if (data.startsWith("pause:")) {
+            Long id = Long.parseLong(data.substring("pause:".length()));
+            repository.findByIdAndChatId(id, chatId).ifPresentOrElse(rule -> {
+                rule.setAcknowledged(true);
+                rule.setSnoozedUntil(null);
+                repository.save(rule);
+                telegramService.sendMessage(chatId, "⏸ Paused Watch #" + id + ".");
+                sendActiveWatchesMenu(chatId);
+            }, () -> telegramService.sendMessage(chatId, "⚠️ Watch #" + id + " not found."));
+        } else if (data.startsWith("resume:")) {
+            Long id = Long.parseLong(data.substring("resume:".length()));
+            repository.findByIdAndChatId(id, chatId).ifPresentOrElse(rule -> {
+                rule.setAcknowledged(false);
+                rule.setAlertCount(0);
+                rule.setLastAlertedAt(null);
+                rule.setSnoozedUntil(null);
+                repository.save(rule);
+                telegramService.sendMessage(chatId, "▶️ Resumed Watch #" + id + ".");
+                sendActiveWatchesMenu(chatId);
+            }, () -> telegramService.sendMessage(chatId, "⚠️ Watch #" + id + " not found."));
         } else if (data.startsWith("snooze:")) {
             Long id = Long.parseLong(data.substring("snooze:".length()));
             repository.findByIdAndChatId(id, chatId).ifPresentOrElse(rule -> {
@@ -726,13 +945,13 @@ public class TelegramCommandService {
     }
 
     private void promptClearAllConfirmation(String chatId) {
-        List<WatchRule> active = repository.findByChatIdAndAcknowledgedFalse(chatId);
-        if (active.isEmpty()) {
+        List<WatchRule> all = repository.findByChatId(chatId);
+        if (all.isEmpty()) {
             telegramService.sendMessage(chatId, "📭 You have no active watches to clear.");
             return;
         }
 
-        String msg = "⚠️ Are you sure you want to delete all <b>" + active.size() + "</b> active movie alert(s)?";
+        String msg = "⚠️ Are you sure you want to delete all <b>" + all.size() + "</b> movie watch(es), including paused watches?";
         List<List<Map<String, Object>>> keyboard = List.of(
                 List.of(
                         Map.of("text", "🗑 Yes, Delete All", "callback_data", "clear_all:confirm"),
@@ -743,7 +962,7 @@ public class TelegramCommandService {
     }
 
     private void sendActiveWatchesMenu(String chatId) {
-        List<WatchRule> rules = repository.findByChatIdAndAcknowledgedFalse(chatId);
+        List<WatchRule> rules = repository.findByChatId(chatId);
         if (rules.isEmpty()) {
             List<List<Map<String, Object>>> kb = List.of(
                     List.of(Map.of("text", "➕ Create Your First Movie Alert", "callback_data", "menu:new"))
@@ -752,22 +971,27 @@ public class TelegramCommandService {
             return;
         }
 
-        StringBuilder sb = new StringBuilder("📋 <b>Your Active Watches (Vizag):</b>\n\n");
+        StringBuilder sb = new StringBuilder("📋 <b>Your Watches (Vizag):</b>\n\n");
         List<List<Map<String, Object>>> keyboard = new ArrayList<>();
 
         for (WatchRule r : rules) {
             String theatreInfo = (r.getTheatreName() != null) ? r.getTheatreName() : "Any Theatre in Vizag";
             String screenInfo = (r.getScreenFilter() != null && !r.getScreenFilter().equalsIgnoreCase("ANY")) ? r.getScreenFilter() : "Any Screen";
-            sb.append("• <b>#").append(r.getId()).append(" ").append(escapeHtml(r.getMovieName())).append("</b>\n")
+            String state = r.isAcknowledged() ? "⏸ PAUSED" : "🟢 ACTIVE";
+            sb.append("• <b>#").append(r.getId()).append(" ").append(escapeHtml(r.getMovieName())).append("</b> — ").append(state).append("\n")
                     .append("   🏛 ").append(escapeHtml(theatreInfo))
                     .append(" | 🖥 ").append(escapeHtml(screenInfo))
                     .append(" | 📅 ").append(escapeHtml(r.getTargetDate()))
                     .append(" | 🗣 ").append(escapeHtml(r.getLanguageFilter()))
                     .append(" | 🎞 ").append(escapeHtml(r.getFormatFilter()))
+                    .append(" | 💰 ").append(escapeHtml(r.getMaxPrice() == null ? "Any Price" : "≤₹" + r.getMaxPrice().stripTrailingZeros().toPlainString()))
+                    .append(" | 💺 ").append(r.getMinAvailableSeats() <= 0 ? "Any Seats" : "≥" + r.getMinAvailableSeats())
                     .append("\n\n");
 
             keyboard.add(List.of(
-                    Map.of("text", "🗑 Delete #" + r.getId() + " (" + r.getMovieName() + ")", "callback_data", "del:" + r.getId())
+                    Map.of("text", r.isAcknowledged() ? "▶️ Resume #" + r.getId() : "⏸ Pause #" + r.getId(),
+                            "callback_data", (r.isAcknowledged() ? "resume:" : "pause:") + r.getId()),
+                    Map.of("text", "🗑 Delete", "callback_data", "del:" + r.getId())
             ));
         }
 

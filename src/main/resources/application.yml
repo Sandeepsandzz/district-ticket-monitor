@@ -30,6 +30,9 @@ district:
   base-url: https://www.district.in/movies
   # Poll District every 2 minutes (120,000 ms) by default
   poll-interval-ms: ${POLL_INTERVAL_MS:120000}
+  scraper:
+    max-attempts: ${SCRAPER_MAX_ATTEMPTS:3}
+    retry-backoff-ms: ${SCRAPER_RETRY_BACKOFF_MS:750}
 
 telegram:
   bot-token: ${TELEGRAM_BOT_TOKEN:}

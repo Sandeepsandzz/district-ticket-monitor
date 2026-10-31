@@ -60,8 +60,14 @@ public class TelegramNotificationService implements NotificationChannel {
                 Map.of("command", "menu", "description", "🍿 Open Vizag Main Menu"),
                 Map.of("command", "new", "description", "➕ New Movie Alert"),
                 Map.of("command", "list", "description", "📋 My Active Alerts"),
+                Map.of("command", "mywatches", "description", "📋 List all my watches"),
+                Map.of("command", "pause", "description", "⏸ Pause a watch by ID"),
+                Map.of("command", "resume", "description", "▶️ Resume a watch by ID"),
+                Map.of("command", "snooze", "description", "⏸ Snooze a watch"),
+                Map.of("command", "delete", "description", "🗑 Delete a watch by ID"),
                 Map.of("command", "check", "description", "🔄 Check Tickets Now"),
-                Map.of("command", "clear", "description", "🗑 Clear All Alerts")
+                Map.of("command", "clear", "description", "🗑 Clear All Alerts"),
+                Map.of("command", "help", "description", "❓ Show command help")
         );
         try {
             restClient.post()
