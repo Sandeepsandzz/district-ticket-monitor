@@ -32,7 +32,7 @@ district:
   poll-interval-ms: ${POLL_INTERVAL_MS:120000}
 
 telegram:
-  bot-token: 9110164256:AAHbhsoLpEKQTjJyrWfesjNyRf6pC4A-Plc
+  bot-token: ${TELEGRAM_BOT_TOKEN:}
   webhook-secret: ${TELEGRAM_WEBHOOK_SECRET:}
   # True for local IDE testing (uses getUpdates without needing ngrok/HTTPS)
   polling-enabled: ${TELEGRAM_POLLING_ENABLED:true}
