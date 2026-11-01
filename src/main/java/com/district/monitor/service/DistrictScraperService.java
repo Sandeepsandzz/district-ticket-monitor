@@ -66,6 +66,9 @@ public class DistrictScraperService {
     private volatile long lastMoviesCacheTime = 0;
     private volatile List<Map<String, String>> cachedUpcomingMovies = List.of();
     private volatile long lastUpcomingCacheTime;
+    private volatile TheatreCatalogue cachedTheatres;
+    private volatile long lastTheatresCacheTime;
+    private volatile List<String> lastKnownTheatres = List.of();
     private volatile Instant lastSuccessAt;
     private volatile Instant lastFailureAt;
     private volatile int consecutiveFailures;
@@ -83,6 +86,10 @@ public class DistrictScraperService {
             BigDecimal price,
             Integer availableSeats
     ) {}
+
+    public record TheatreCatalogue(List<String> items, String source) {
+        public boolean suggested() { return "fallback".equals(source); }
+    }
 
     @Autowired
     public DistrictScraperService(
@@ -317,19 +324,62 @@ public class DistrictScraperService {
         }
     }
 
-    /** Known Vizag cinema roster used when a movie has not opened bookings yet. */
+    /** District's city-wide cinema catalogue, independent of any movie's current sessions. */
+    public synchronized TheatreCatalogue fetchVizagTheatres() {
+        long now = System.currentTimeMillis();
+        if (cachedTheatres != null && now - lastTheatresCacheTime <
+                ("live".equals(cachedTheatres.source()) ? 300_000 : 60_000)) return cachedTheatres;
+        try {
+            Document doc = fetchDocument("https://www.district.in/movies/cinemas-in-vizag", 15_000, "theatre catalogue");
+            List<String> theatres = parseVizagTheatres(doc);
+            if (!theatres.isEmpty()) {
+                lastKnownTheatres = theatres;
+                cachedTheatres = new TheatreCatalogue(theatres, "live");
+                lastTheatresCacheTime = now;
+                return cachedTheatres;
+            }
+            log.warn("District's Vizag theatre catalogue was empty");
+        } catch (Exception e) {
+            log.warn("Could not load District's Vizag theatre catalogue: {}", e.getMessage());
+        }
+        cachedTheatres = lastKnownTheatres.isEmpty()
+                ? new TheatreCatalogue(getKnownVizagTheatres(), "fallback")
+                : new TheatreCatalogue(lastKnownTheatres, "cached");
+        lastTheatresCacheTime = now;
+        return cachedTheatres;
+    }
+
+    public List<String> parseVizagTheatres(Document doc) {
+        Map<String, String> theatres = new LinkedHashMap<>();
+        for (Element link : doc.select("a[href]")) {
+            try {
+                URI uri = URI.create(link.absUrl("href"));
+                String path = uri.getPath();
+                if (!"https".equalsIgnoreCase(uri.getScheme()) || !"www.district.in".equalsIgnoreCase(uri.getHost())
+                        || path == null || !path.matches("/movies/[a-zA-Z0-9-]+-CD[0-9]+")) continue;
+                Element label = link.selectFirst("span");
+                String name = (label == null ? link.text() : label.text()).trim();
+                if (!name.isBlank()) theatres.putIfAbsent(path.substring(path.lastIndexOf("-CD")), name);
+            } catch (IllegalArgumentException ignored) {
+                // Ignore malformed links elsewhere on the page.
+            }
+        }
+        return theatres.values().stream().sorted(String.CASE_INSENSITIVE_ORDER).toList();
+    }
+
+    /** Partial suggestions used when the live catalogue cannot be reached. */
     public List<String> getKnownVizagTheatres() {
         return List.of(
                 "AAA Cinemas",
                 "INOX Varun Beach",
-                "INOX CMR Central",
+                "INOX CMR Central, Gajuwaka, Vizag",
+                "INOX CMR Central, Maddilapalem, Vizag",
                 "INOX Chitralayaa Mall",
                 "Cinepolis Sreekanya Cineglitz",
                 "Asian Mukta A2 Cinemas",
                 "STBL Cinemas Multiplex SL Nagar",
                 "Miraj Cinemas Bhupathi Surya Central",
-                "Kameswari / Kinnera",
-                "Jagadamba / Sarat"
+                "Kameswari & Kinnera A/C Laser 4K Projection Dolby Atmos & 7.1 Ultrasound, Vizag"
         );
     }
 
@@ -801,7 +851,11 @@ public class DistrictScraperService {
         if (record.cinemaName() == null) {
             return false;
         }
-        return record.cinemaName().toLowerCase().contains(theatreFilter.trim().toLowerCase());
+        return normalizeTheatreName(record.cinemaName()).contains(normalizeTheatreName(theatreFilter));
+    }
+
+    private String normalizeTheatreName(String name) {
+        return name.replace('\u00a0', ' ').trim().replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
     }
 
     private boolean matchesScreen(ScreeningRecord record, String screenFilter) {

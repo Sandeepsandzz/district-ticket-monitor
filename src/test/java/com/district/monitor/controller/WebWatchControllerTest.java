@@ -62,4 +62,13 @@ class WebWatchControllerTest {
         assertEquals("Screen 7", capture.getValue().getScreenFilter());
         assertFalse(capture.getValue().isRepeatAlerts());
     }
+    @Test void theatreChoicesAreCityWideEvenWhenMovieHasLimitedSessions() {
+        String url = "https://www.district.in/movies/film-movie-tickets-in-vizag-MV123";
+        when(scraper.isAllowedMoviePageUrl(url)).thenReturn(true);
+        when(scraper.fetchVizagTheatres()).thenReturn(new DistrictScraperService.TheatreCatalogue(List.of("AAA", "INOX"), "live"));
+        var result = controller.theatres(alice, url);
+        assertEquals(List.of("AAA", "INOX"), result.get("items"));
+        assertEquals(false, result.get("suggested"));
+        verify(scraper, never()).getAvailableTheatresForMovie(anyString());
+    }
 }

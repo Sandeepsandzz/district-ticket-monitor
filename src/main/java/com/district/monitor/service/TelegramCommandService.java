@@ -363,11 +363,8 @@ public class TelegramCommandService {
 
     private void promptForTheatreSelection(String chatId, WizardSession session) {
         session.setStep(Step.AWAITING_THEATRE_CHOICE);
-        List<String> theatres = scraperService.getAvailableTheatresForMovie(session.getMovieUrl());
-        boolean usingFallback = theatres.isEmpty();
-        if (usingFallback) {
-            theatres = scraperService.getKnownVizagTheatres();
-        }
+        var catalogue = scraperService.fetchVizagTheatres();
+        List<String> theatres = catalogue.items();
         session.setTheatreOptions(theatres);
 
         String msg = """
@@ -375,9 +372,10 @@ public class TelegramCommandService {
                 Movie: <b>%s</b>
 
                 %s
-                """.formatted(escapeHtml(session.getMovieName()), usingFallback
-                ? "District has not supplied theatres for this movie yet. Choose a suggested theatre or enter its name."
-                : "Select one theatre to monitor.");
+                """.formatted(escapeHtml(session.getMovieName()), catalogue.suggested()
+                ? "District's theatre list is unavailable. These are partial suggestions; you can also type a theatre name."
+                : ("cached".equals(catalogue.source()) ? "Showing the last loaded Vizag theatre list. " : "Showing District's Vizag theatres. ")
+                    + "A listing does not mean bookings have opened for this movie.");
 
         List<List<Map<String, Object>>> keyboard = new ArrayList<>();
         List<Map<String, Object>> row = new ArrayList<>();
@@ -608,8 +606,8 @@ public class TelegramCommandService {
                 promptForTheatreSelection(chatId, session);
             }
             case AWAITING_CUSTOM_THEATRE -> {
-                if (text.isBlank() || text.length() > 100) {
-                    telegramService.sendMessage(chatId, "⚠️ Theatre name must be between 1 and 100 characters. Try again:");
+                if (text.isBlank() || text.length() > 255) {
+                    telegramService.sendMessage(chatId, "⚠️ Theatre name must be between 1 and 255 characters. Try again:");
                     return;
                 }
                 session.setTheatreName(text.trim());

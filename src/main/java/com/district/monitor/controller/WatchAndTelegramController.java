@@ -275,7 +275,7 @@ public class WatchAndTelegramController {
         if (req.theatreName() == null || req.theatreName().isBlank() || "ANY".equalsIgnoreCase(req.theatreName().trim())) return "theatreName is required";
         if (req.screenFilter() == null || req.screenFilter().isBlank() || "ANY".equalsIgnoreCase(req.screenFilter().trim())) return "screenFilter is required";
         if (!validSpecificDate(req.targetDate())) return "targetDate must be a valid YYYY-MM-DD date";
-        if (tooLong(req.theatreName()) || tooLong(req.screenFilter())) return "Theatre and screen values must not exceed 100 characters";
+        if (req.theatreName().length() > 255 || tooLong(req.screenFilter())) return "Theatre must not exceed 255 characters and screen must not exceed 100 characters";
         if (req.movieUrl() != null && !req.movieUrl().isBlank() && !scraperService.isAllowedMoviePageUrl(req.movieUrl())) {
             return "movieUrl must be an HTTPS movie page on www.district.in";
         }

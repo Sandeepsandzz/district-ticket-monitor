@@ -6,6 +6,7 @@ import org.jsoup.nodes.Document;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;
+import java.io.IOException;
 import java.util.List;
 import java.util.HashMap;
 import com.district.monitor.entity.WatchRule;
@@ -13,6 +14,34 @@ import com.district.monitor.entity.WatchRule;
 import static org.junit.jupiter.api.Assertions.*;
 
 class DistrictScraperParserTest {
+
+    @Test
+    void readsCityWideTheatresWithoutDependingOnMovieSessions() {
+        Document doc = Jsoup.parse("""
+                <a href="/movies/aaa-vizag-CD1102411"><span>AAA Cinemas, Vizag</span></a>
+                <a href="/movies/inox-gajuwaka-CD1029270"><span>INOX CMR Central, Gajuwaka</span></a>
+                <a href="/movies/inox-maddilapalem-CD123"><span>INOX CMR Central, Maddilapalem</span></a>
+                <a href="/movies/aaa-vizag-CD1102411"><span>AAA Cinemas, Vizag</span></a>
+                <a href="https://evil.example/movies/fake-CD999"><span>Fake</span></a>
+                <a href="/movies/film-MV123"><span>A movie, not a cinema</span></a>
+                """, "https://www.district.in/movies/cinemas-in-vizag");
+        var scraper = new DistrictScraperService("https://www.district.in/movies");
+        assertEquals(List.of("AAA Cinemas, Vizag", "INOX CMR Central, Gajuwaka", "INOX CMR Central, Maddilapalem"),
+                scraper.parseVizagTheatres(doc));
+    }
+
+    @Test
+    void labelsFallbackWhenCityCatalogueCannotBeFetched() {
+        var scraper = new DistrictScraperService("https://www.district.in/movies") {
+            @Override protected Document fetchDocument(String url, int timeout, String operation) throws IOException {
+                throw new IOException("unavailable");
+            }
+        };
+        var catalogue = scraper.fetchVizagTheatres();
+        assertTrue(catalogue.suggested());
+        assertEquals("fallback", catalogue.source());
+        assertFalse(catalogue.items().isEmpty());
+    }
 
     @Test
     void parsesCurrentDistrictServerStateMovieSessions() throws Exception {
@@ -73,7 +102,7 @@ class DistrictScraperParserTest {
         String html = """
                 <script id="__NEXT_DATA__" type="application/json">
                 {"props":{"pageProps":{"data":{"serverState":{"movieSessions":{"x":{"pageData":{"nearbyCinemas":[
-                  {"cinemaInfo":{"name":"AAA"},"sessions":[{"showTime":"2099-01-01T04:35:00","audi":"SCREEN 7","avail":10,"disableClick":false}]}
+                  {"cinemaInfo":{"name":"AAA  Cinemas, Vizag"},"sessions":[{"showTime":"2099-01-01T04:35:00","audi":"SCREEN 7","avail":10,"disableClick":false}]}
                 ]}}}}}}}}
                 </script>
                 """;
@@ -84,8 +113,8 @@ class DistrictScraperParserTest {
         }
         var scraper=new FakeScraper(); var cache=new HashMap<String,Document>();
         String url="https://www.district.in/movies/film-movie-tickets-in-vizag-MV123";
-        var a=new WatchRule("123","vizag","Film","AAA","Screen 7","2099-01-01","ANY","ANY",url);
-        var b=new WatchRule("123","vizag","Film","AAA","Screen 4","2099-01-01","ANY","ANY",url);
+        var a=new WatchRule("123","vizag","Film","AAA Cinemas, Vizag","Screen 7","2099-01-01","ANY","ANY",url);
+        var b=new WatchRule("123","vizag","Film","AAA Cinemas, Vizag","Screen 4","2099-01-01","ANY","ANY",url);
         assertTrue(scraper.checkWatchRule(a,cache).isAvailable());
         var result=scraper.checkWatchRule(b,cache);
         assertFalse(result.isAvailable()); assertEquals("NO_MATCH",result.checkStatus()); assertEquals(1,scraper.fetches);

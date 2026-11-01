@@ -78,8 +78,8 @@ public class WebWatchController {
                                         @RequestParam String movieUrl) {
         chat(authorization);
         requireMovieUrl(movieUrl);
-        var live = scraper.getAvailableTheatresForMovie(movieUrl);
-        return Map.of("items", live.isEmpty() ? scraper.getKnownVizagTheatres() : live, "suggested", live.isEmpty());
+        var catalogue = scraper.fetchVizagTheatres();
+        return Map.of("items", catalogue.items(), "suggested", catalogue.suggested(), "source", catalogue.source());
     }
 
     @GetMapping("/screens")
@@ -87,7 +87,7 @@ public class WebWatchController {
                                        @RequestParam String movieUrl, @RequestParam String theatre) {
         chat(authorization);
         requireMovieUrl(movieUrl);
-        requireText(theatre, "theatre", 100);
+        requireText(theatre, "theatre", 255);
         var live = scraper.getAvailableScreensForTheatre(movieUrl, theatre);
         return Map.of("items", live.isEmpty() ? telegram.getScreensForTheatre(theatre) : live, "suggested", live.isEmpty());
     }
@@ -118,7 +118,7 @@ public class WebWatchController {
         if (request == null) throw bad("Watch details are required");
         requireText(request.movieName(), "movie", 120);
         requireMovieUrl(request.movieUrl());
-        requireText(request.theatreName(), "theatre", 100);
+        requireText(request.theatreName(), "theatre", 255);
         requireText(request.screen(), "screen", 100);
         if ("ANY".equalsIgnoreCase(request.theatreName().trim()) || "ANY".equalsIgnoreCase(request.screen().trim())) throw bad("Choose a specific theatre and screen");
         try {

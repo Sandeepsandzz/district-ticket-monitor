@@ -11,6 +11,18 @@ import static org.junit.jupiter.api.Assertions.*;
 @EnabledIfSystemProperty(named = "district.live.ramayana", matches = "true")
 class RamayanaLiveIntegrationTest {
     @Test
+    void cityCatalogueTheatreMatchesCurrentMovieSessions() {
+        var scraper = new DistrictScraperService("https://www.district.in/movies");
+        var catalogue = scraper.fetchVizagTheatres();
+        assertEquals("live", catalogue.source());
+        assertTrue(catalogue.items().size() > 1);
+        String theatre = catalogue.items().stream().filter(t -> t.startsWith("AAA Cinemas")).findFirst().orElseThrow();
+        String movie = scraper.fetchCurrentVizagMovies().stream().map(m -> m.get("url"))
+                .filter(url -> url.contains("MV176276")).findFirst().orElseThrow();
+        assertFalse(scraper.getAvailableScreensForTheatre(movie, theatre).isEmpty(),
+                "A city catalogue theatre should match its movie sessions");
+    }
+    @Test
     void findsMovieAndNovemberSixScreenSevenShow() {
         var scraper = new DistrictScraperService("https://www.district.in/movies");
         var movie = scraper.fetchCurrentVizagMovies().stream()

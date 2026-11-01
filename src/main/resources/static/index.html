@@ -37,7 +37,7 @@
         <label for="customMovieUrl" class="hidden" id="customMovieUrlLabel">District movie page URL</label><input id="customMovieUrl" class="hidden" type="url" placeholder="https://www.district.in/movies/...">
         <div id="movieNote" class="note hidden">After entering the link, leave the field to load theatres.</div>
         <label for="theatre">Theatre</label><select id="theatre" required disabled><option value="">Select a movie first</option></select><div id="theatreNote" class="note"></div>
-        <label for="customTheatre" class="hidden" id="customTheatreLabel">Enter theatre name</label><input id="customTheatre" class="hidden" maxlength="100">
+        <label for="customTheatre" class="hidden" id="customTheatreLabel">Enter theatre name</label><input id="customTheatre" class="hidden" maxlength="255">
         <label for="screen">Screen</label><select id="screen" required disabled><option value="">Select a theatre first</option></select><div id="screenNote" class="note"></div>
         <label for="customScreen" class="hidden" id="customScreenLabel">Enter screen name</label><input id="customScreen" class="hidden" maxlength="100">
         <label for="date">Show date</label><input id="date" type="date" required>
@@ -81,7 +81,7 @@
   }
   async function loadTheatres() { const version=++selectionVersion; resetSelect('theatre','Loading theatres…'); resetSelect('screen','Select a theatre first'); custom('customTheatre',false); custom('customScreen',false); $('theatreNote').textContent=''; $('screenNote').textContent='';
     const movie=selectedMovie(); if ($('movie').value==='' || !movie || !movie.url) { resetSelect('theatre','Select a movie first'); return; }
-    try { const data=await api('/theatres?'+new URLSearchParams({movieUrl:movie.url})); if(version!==selectionVersion)return; fillSelect('theatre',data.items,'Choose a theatre'); $('theatreNote').textContent=data.suggested?'Suggested theatres are unverified for this movie.':''; } catch(e) { if(version===selectionVersion) say(e.message,true); }
+    try { const data=await api('/theatres?'+new URLSearchParams({movieUrl:movie.url})); if(version!==selectionVersion)return; fillSelect('theatre',data.items,'Choose a theatre'); $('theatreNote').textContent=data.suggested?'District’s theatre list is unavailable; these are partial suggestions. You can also enter a theatre name.':(data.source==='cached'?'Showing the last loaded Vizag theatre list. ':'Showing District’s Vizag theatre list. ')+'A listing does not mean bookings have opened for this movie.'; } catch(e) { if(version===selectionVersion) say(e.message,true); }
   }
   async function loadScreens() { const version=++selectionVersion; resetSelect('screen','Loading screens…'); custom('customScreen',false); $('screenNote').textContent=''; const selected=$('theatre').value; custom('customTheatre',selected===CUSTOM); const theatre=selected===CUSTOM ? $('customTheatre').value.trim() : selected; const movie=selectedMovie();
     if (!theatre || !movie) { resetSelect('screen','Select a theatre first'); return; }
