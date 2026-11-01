@@ -8,5 +8,6 @@ import com.district.monitor.entity.WatchRule;
 public interface NotificationChannel {
     String channelName();
     boolean isEnabled();
+    default boolean appliesTo(WatchRule rule) { return isEnabled(); }
     void sendTicketAlert(WatchRule rule, String htmlMessage, String plainTextMessage, String bookingUrl);
 }

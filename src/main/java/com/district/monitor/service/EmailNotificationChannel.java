@@ -58,7 +58,7 @@ public class EmailNotificationChannel implements NotificationChannel {
             mailSender.send(msg);
             log.info("Dispatched Email notification for watchId={} to {}", rule.getId(), toAddress);
         } catch (Exception e) {
-            log.error("Email notification failed for watchId={}: {}", rule.getId(), e.getMessage());
+            throw new IllegalStateException("Email request failed");
         }
     }
 }

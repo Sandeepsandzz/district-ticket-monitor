@@ -39,6 +39,7 @@ A cloud-ready **Java 21 + Spring Boot 3.3** microservice integrated with an **In
 - `TELEGRAM_WEBHOOK_SECRET` is required in Telegram's `X-Telegram-Bot-Api-Secret-Token` header before `/api/telegram/webhook` accepts updates.
 - `H2_CONSOLE_ENABLED` defaults to `false`.
 - The database uses `DATA_DIR` (defaults to `./data`). For Render, attach a persistent disk mounted at `/app/data` and set `DATA_DIR=/app/data`; without persistent storage, watches can be lost on restart or redeploy. Keep this service to one instance while using the file-backed H2 database.
+- To use external PostgreSQL, set `JDBC_DATABASE_URL` to the provider's **JDBC** URL (for example `jdbc:postgresql://HOST:5432/DATABASE?sslmode=require`), plus `DATABASE_USERNAME` and `DATABASE_PASSWORD`. Follow the provider's TLS settings. Store credentials only in Render environment variables, never in source or chat. If the database cannot be reached, startup fails instead of silently switching to an empty H2 database.
 - Generate `API_ADMIN_TOKEN` with a cryptographically secure random value and store it only in the service environment.
 
 ## Web interface
@@ -60,6 +61,16 @@ After creating a watch, use its numeric ID with these commands:
 - `/clear` — delete all watches after confirmation.
 
 The watch wizard intentionally has no price, seat-count, language, or format filters. Its purpose is to notify you when tickets open for one exact movie, theatre, screen, and date.
+
+Use `/once ID` for one accepted alert or `/repeat ID` for recurring reminders. The website also lets you choose this per watch. Repeating reminders stop at the configured `MAX_ALERTS_PER_WATCH` and respect `REPEAT_ALERT_MINS`; expired show dates are no longer polled. A one-time watch can still retry other channels after one provider accepts the alert.
+
+Each watch shows its last check and an outcome. `UNKNOWN` means no bookable sessions were parsed and should not be read as proof of sold-out tickets. Alert history shows the last 50 detected events, showtimes, and per-channel acceptance or retry status. Provider acceptance does not prove delivery to a device. Failed channels retry independently with backoff while the event is fresh; a stale event is checked again before generating another notification. Network interruptions around a successful send may still cause a duplicate.
+
+When several watches refer to the same movie page and date in one polling cycle, the fetched page is reused. Watch checks do not run after the selected date in India time.
+
+### Migrating existing watches
+
+Export the current `/api/admin/watches` JSON **before** changing the database or redeploying on ephemeral storage. The admin dashboard also provides Export and Import buttons after this version is deployed. Keep the JSON private because it contains chat IDs. After configuring PostgreSQL and deploying, import the JSON using the new dashboard or `POST /api/admin/watches/import` with `X-Admin-Token`. Import skips matching watches and does not overwrite existing records. The target database assigns new watch IDs, so buttons on old Telegram messages will no longer refer to the imported watches; use `/mywatches` for the new IDs. Import copies watch definitions and state, not historical alert events. Verify the imported list before deleting any old data.
 
 ## Optional WhatsApp test alerts
 

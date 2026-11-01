@@ -62,7 +62,7 @@ public class WebhookNotificationChannel implements NotificationChannel {
                     .toBodilessEntity();
             log.info("Dispatched Webhook notification for watchId={}", rule.getId());
         } catch (Exception e) {
-            log.error("Webhook notification failed for watchId={}: {}", rule.getId(), e.getMessage());
+            throw new IllegalStateException("Webhook request failed");
         }
     }
 }

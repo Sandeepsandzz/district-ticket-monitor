@@ -7,6 +7,8 @@ import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;
 import java.util.List;
+import java.util.HashMap;
+import com.district.monitor.entity.WatchRule;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -64,5 +66,28 @@ class DistrictScraperParserTest {
         assertEquals("Example: Part 2", movies.get(0).get("name"));
         assertEquals("December 18, 2026", movies.get(0).get("releaseDate"));
         assertEquals("https://www.district.in/movies/example-movie-tickets-in-vizag-MV123", movies.get(0).get("url"));
+    }
+
+    @Test
+    void sharedPageIsFetchedOnceAndAppliedToDifferentScreens() {
+        String html = """
+                <script id="__NEXT_DATA__" type="application/json">
+                {"props":{"pageProps":{"data":{"serverState":{"movieSessions":{"x":{"pageData":{"nearbyCinemas":[
+                  {"cinemaInfo":{"name":"AAA"},"sessions":[{"showTime":"2099-01-01T04:35:00","audi":"SCREEN 7","avail":10,"disableClick":false}]}
+                ]}}}}}}}}
+                </script>
+                """;
+        class FakeScraper extends DistrictScraperService {
+            int fetches;
+            FakeScraper() { super("https://www.district.in/movies"); }
+            @Override protected Document fetchDocument(String url, int timeout, String operation) { fetches++; return Jsoup.parse(html); }
+        }
+        var scraper=new FakeScraper(); var cache=new HashMap<String,Document>();
+        String url="https://www.district.in/movies/film-movie-tickets-in-vizag-MV123";
+        var a=new WatchRule("123","vizag","Film","AAA","Screen 7","2099-01-01","ANY","ANY",url);
+        var b=new WatchRule("123","vizag","Film","AAA","Screen 4","2099-01-01","ANY","ANY",url);
+        assertTrue(scraper.checkWatchRule(a,cache).isAvailable());
+        var result=scraper.checkWatchRule(b,cache);
+        assertFalse(result.isAvailable()); assertEquals("NO_MATCH",result.checkStatus()); assertEquals(1,scraper.fetches);
     }
 }

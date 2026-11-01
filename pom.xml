@@ -41,6 +41,12 @@
             <scope>runtime</scope>
         </dependency>
 
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
         <!-- Jsoup for parsing District HTML & Next.js embedded JSON -->
         <dependency>
             <groupId>org.jsoup</groupId>

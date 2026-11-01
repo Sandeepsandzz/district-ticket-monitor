@@ -334,6 +334,10 @@ public class DistrictScraperService {
     }
 
     public AvailabilityCheckResult checkWatchRule(WatchRule rule) {
+        return checkWatchRule(rule, new HashMap<>());
+    }
+
+    public AvailabilityCheckResult checkWatchRule(WatchRule rule, Map<String, Document> pageCache) {
         try {
             String targetUrl = rule.getMovieUrl();
             if (targetUrl == null || targetUrl.isBlank() || targetUrl.endsWith("/movies") || targetUrl.endsWith("/movies/")) {
@@ -350,7 +354,8 @@ public class DistrictScraperService {
             targetUrl = normalizeToVizagUrl(targetUrl);
             if (!isAllowedMoviePageUrl(targetUrl)) {
                 log.warn("Rejected non-District movie URL for watch id={}", rule.getId());
-                return unavailableResult(rule);
+                return new AvailabilityCheckResult(false, List.of(), List.of(), List.of(), rule.getTargetDate(),
+                        rule.getLanguageFilter(), rule.getFormatFilter(), baseUrl, "ERROR", "Invalid District movie URL");
             }
 
             // Append fromdate if specific target date is requested (e.g. 2026-10-31)
@@ -360,18 +365,18 @@ public class DistrictScraperService {
                 targetUrl = targetUrl + sep + "fromdate=" + targetDate.trim();
             }
 
-            AvailabilityCheckResult res = inspectMoviePage(targetUrl, rule);
+            AvailabilityCheckResult res = inspectMoviePage(targetUrl, rule, pageCache);
 
             // If zero screenings on the base page and rule allows ANY date, check if showDates exists on page (e.g. upcoming release date)
             if (!res.isAvailable() && (rule.getTargetDate() == null || "ANY".equalsIgnoreCase(rule.getTargetDate()))) {
                 try {
-                    Document doc = fetchDocument(targetUrl, 10_000, "release-date discovery");
+                    Document doc = fetchMoviePage(targetUrl, pageCache);
                     String raw = doc.html();
                     Matcher sdm = Pattern.compile("\"showDates\":\\[\"([0-9]{4}-[0-9]{2}-[0-9]{2})\"").matcher(raw);
                     if (sdm.find()) {
                         String firstDate = sdm.group(1);
                         String dateUrl = targetUrl + (targetUrl.contains("?") ? "&" : "?") + "fromdate=" + firstDate;
-                        AvailabilityCheckResult dateRes = inspectMoviePage(dateUrl, rule);
+                        AvailabilityCheckResult dateRes = inspectMoviePage(dateUrl, rule, pageCache);
                         if (dateRes.isAvailable()) {
                             return dateRes;
                         }
@@ -383,7 +388,8 @@ public class DistrictScraperService {
 
         } catch (Exception e) {
             log.error("Error checking rule id={} (movie={}): {}", rule.getId(), rule.getMovieName(), e.getMessage());
-            return unavailableResult(rule);
+            return new AvailabilityCheckResult(false, List.of(), List.of(), List.of(), rule.getTargetDate(),
+                    rule.getLanguageFilter(), rule.getFormatFilter(), baseUrl, "ERROR", "District check failed; will retry");
         }
     }
 
@@ -425,11 +431,27 @@ public class DistrictScraperService {
         return "https://www.district.in/movies/" + slug + "-movie-tickets-in-vizag";
     }
 
-    private AvailabilityCheckResult inspectMoviePage(String movieUrl, WatchRule rule) throws IOException {
+    private Document fetchMoviePage(String movieUrl, Map<String, Document> pageCache) throws IOException {
+        if (pageCache.containsKey(movieUrl)) {
+            Document cached = pageCache.get(movieUrl);
+            if (cached == null) throw new IOException("District request already failed during this check");
+            return cached;
+        }
+        try {
+            Document document = fetchDocument(movieUrl, 15_000, "movie page");
+            pageCache.put(movieUrl, document);
+            return document;
+        } catch (IOException e) {
+            pageCache.put(movieUrl, null);
+            throw e;
+        }
+    }
+
+    private AvailabilityCheckResult inspectMoviePage(String movieUrl, WatchRule rule, Map<String, Document> pageCache) throws IOException {
         if (!isAllowedMoviePageUrl(movieUrl)) {
             throw new IOException("Rejected non-District movie URL");
         }
-        Document doc = fetchDocument(movieUrl, 15_000, "movie page");
+        Document doc = fetchMoviePage(movieUrl, pageCache);
 
         String rawHtml = doc.html();
         String fallbackDate = "ANY".equalsIgnoreCase(rule.getTargetDate())
@@ -440,7 +462,8 @@ public class DistrictScraperService {
         if (allScreenings.isEmpty()) {
             log.debug("Zero screenings found for movie='{}' (page={})", rule.getMovieName(), movieUrl);
             return new AvailabilityCheckResult(
-                    false, List.of(), List.of(), List.of(), rule.getTargetDate(), rule.getLanguageFilter(), rule.getFormatFilter(), movieUrl
+                    false, List.of(), List.of(), List.of(), rule.getTargetDate(), rule.getLanguageFilter(), rule.getFormatFilter(), movieUrl,
+                    "UNKNOWN", "No bookable sessions found; District may not have published session data yet"
             );
         }
 
@@ -455,7 +478,8 @@ public class DistrictScraperService {
             log.debug("Movie '{}' has {} total screenings in Vizag, but 0 matched filter criteria (Screen={}, Theatre={}, Date={}).",
                     rule.getMovieName(), allScreenings.size(), rule.getScreenFilter(), rule.getTheatreName(), rule.getTargetDate());
             return new AvailabilityCheckResult(
-                    false, List.of(), List.of(), List.of(), rule.getTargetDate(), rule.getLanguageFilter(), rule.getFormatFilter(), movieUrl
+                    false, List.of(), List.of(), List.of(), rule.getTargetDate(), rule.getLanguageFilter(), rule.getFormatFilter(), movieUrl,
+                    "NO_MATCH", "No available session matches the selected theatre and screen"
             );
         }
 
@@ -576,7 +600,7 @@ public class DistrictScraperService {
     }
 
     private void collectMovieSessions(JsonNode node, List<ScreeningRecord> screenings, String fallbackTitle, String fallbackDate) {
-        if (node == null || node.isMissingNode() || node.isNull() || !screenings.isEmpty()) return;
+        if (node == null || node.isMissingNode() || node.isNull()) return;
 
         if (node.isObject()) {
             JsonNode cinemas = node.path("pageData").path("nearbyCinemas");
@@ -587,17 +611,16 @@ public class DistrictScraperService {
                 for (JsonNode cinema : cinemas) {
                     collectCinemaSessions(cinema, screenings, fallbackTitle, fallbackDate);
                 }
-                if (!screenings.isEmpty()) return;
+                return;
             }
 
             Iterator<JsonNode> values = node.elements();
-            while (values.hasNext() && screenings.isEmpty()) {
+            while (values.hasNext()) {
                 collectMovieSessions(values.next(), screenings, fallbackTitle, fallbackDate);
             }
         } else if (node.isArray()) {
             for (JsonNode item : node) {
                 collectMovieSessions(item, screenings, fallbackTitle, fallbackDate);
-                if (!screenings.isEmpty()) break;
             }
         }
     }
@@ -912,7 +935,7 @@ public class DistrictScraperService {
         }
     }
 
-    private Document fetchDocument(String url, int timeoutMillis, String operation) throws IOException {
+    protected Document fetchDocument(String url, int timeoutMillis, String operation) throws IOException {
         IOException lastFailure = null;
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             try {

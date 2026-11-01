@@ -5,10 +5,9 @@ spring:
   application:
     name: district-ticket-monitor
   datasource:
-    url: "jdbc:h2:file:${DATA_DIR:./data}/district_watches_v3;AUTO_SERVER=TRUE"
-    driver-class-name: org.h2.Driver
-    username: sa
-    password:
+    url: "${JDBC_DATABASE_URL:jdbc:h2:file:${DATA_DIR:./data}/district_watches_v3;AUTO_SERVER=TRUE}"
+    username: ${DATABASE_USERNAME:sa}
+    password: ${DATABASE_PASSWORD:}
   jpa:
     hibernate:
       ddl-auto: update

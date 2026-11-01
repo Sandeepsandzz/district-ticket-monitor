@@ -47,7 +47,7 @@ public class TelegramNotificationService implements NotificationChannel {
                 Map.of("text", "🛑 Acknowledge & Stop Alerts", "callback_data", "ack:" + rule.getId()),
                 Map.of("text", "⏸ Snooze 15m", "callback_data", "snooze:" + rule.getId())
         ));
-        sendWithInlineKeyboard(rule.getChatId(), htmlMessage, inlineKeyboard);
+        sendInlineKeyboard(rule.getChatId(), htmlMessage, inlineKeyboard);
     }
 
     public void sendMessage(String chatId, String htmlMessage) {
@@ -67,6 +67,8 @@ public class TelegramNotificationService implements NotificationChannel {
                 Map.of("command", "pause", "description", "⏸ Pause a watch by ID"),
                 Map.of("command", "resume", "description", "▶️ Resume a watch by ID"),
                 Map.of("command", "snooze", "description", "⏸ Snooze a watch"),
+                Map.of("command", "once", "description", "Notify once for a watch"),
+                Map.of("command", "repeat", "description", "Repeat alerts for a watch"),
                 Map.of("command", "delete", "description", "🗑 Delete a watch by ID"),
                 Map.of("command", "check", "description", "🔄 Check Tickets Now"),
                 Map.of("command", "clear", "description", "🗑 Clear All Alerts"),
@@ -122,6 +124,14 @@ public class TelegramNotificationService implements NotificationChannel {
             String htmlMessage,
             List<List<Map<String, Object>>> inlineKeyboardRows
     ) {
+        try {
+            sendInlineKeyboard(chatId, htmlMessage, inlineKeyboardRows);
+        } catch (RuntimeException e) {
+            log.warn("Telegram message could not be sent");
+        }
+    }
+
+    private void sendInlineKeyboard(String chatId, String htmlMessage, List<List<Map<String, Object>>> inlineKeyboardRows) {
         if (!isEnabled()) {
             log.debug("Telegram delivery skipped because TELEGRAM_BOT_TOKEN is not configured.");
             return;
@@ -145,7 +155,7 @@ public class TelegramNotificationService implements NotificationChannel {
                     .retrieve()
                     .toBodilessEntity();
         } catch (Exception e) {
-            log.error("Failed to send Telegram message to chatId={}: {}", chatId, e.getMessage());
+            throw new IllegalStateException("Telegram request failed");
         }
     }
 

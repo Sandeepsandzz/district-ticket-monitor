@@ -2,6 +2,8 @@ package com.district.monitor.controller;
 
 import com.district.monitor.entity.WatchRule;
 import com.district.monitor.repository.WatchRuleRepository;
+import com.district.monitor.repository.AlertEventRepository;
+import com.district.monitor.repository.AlertDeliveryRepository;
 import com.district.monitor.scheduler.TicketWatchScheduler;
 import com.district.monitor.service.*;
 import org.junit.jupiter.api.BeforeEach;
@@ -24,7 +26,7 @@ class WebWatchControllerTest {
         repository = mock(WatchRuleRepository.class);
         scraper = mock(DistrictScraperService.class);
         controller = new WebWatchController(links, repository, scraper,
-                mock(TelegramCommandService.class), mock(TicketWatchScheduler.class));
+                mock(TelegramCommandService.class), mock(TicketWatchScheduler.class), mock(AlertEventRepository.class), mock(AlertDeliveryRepository.class));
         alice = "Bearer " + links.exchange(links.issueCode("alice"));
     }
     @Test void rejectsUnauthenticatedAccess() {
@@ -52,11 +54,12 @@ class WebWatchControllerTest {
         when(scraper.isAllowedMoviePageUrl(url)).thenReturn(true);
         when(repository.findByChatIdAndMovieNameIgnoreCaseAndAcknowledgedFalse("alice", "Film")).thenReturn(List.of());
         when(repository.save(any(WatchRule.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        var result = controller.create(alice, new WebWatchController.WatchRequest("Film", url, "AAA", "Screen 7", "2099-01-01"));
+        var result = controller.create(alice, new WebWatchController.WatchRequest("Film", url, "AAA", "Screen 7", "2099-01-01", false));
         assertEquals("Film", result.movie());
         var capture = org.mockito.ArgumentCaptor.forClass(WatchRule.class);
         verify(repository).save(capture.capture());
         assertEquals("alice", capture.getValue().getChatId());
         assertEquals("Screen 7", capture.getValue().getScreenFilter());
+        assertFalse(capture.getValue().isRepeatAlerts());
     }
 }

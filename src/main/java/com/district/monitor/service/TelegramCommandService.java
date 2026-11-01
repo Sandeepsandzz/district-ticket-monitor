@@ -95,6 +95,14 @@ public class TelegramCommandService {
                         + "</code>\n\nPaste this into the website within 10 minutes. It can be used once; keep it private.");
             }
             return;
+        } else if (isCommand(text, "once") || isCommand(text, "repeat")) {
+            boolean repeat = isCommand(text, "repeat");
+            Long id = parseWatchId(chatId, commandArguments(text), repeat ? "/repeat WATCH_ID" : "/once WATCH_ID");
+            if (id != null) repository.findByIdAndChatId(id, chatId).ifPresentOrElse(rule -> {
+                rule.setRepeatAlerts(repeat); repository.save(rule);
+                telegramService.sendMessage(chatId, "Watch #" + id + (repeat ? " will repeat reminders." : " will notify once."));
+            }, () -> telegramService.sendMessage(chatId, "⚠️ Watch #" + id + " was not found."));
+            return;
         } else if (isCommand(text, "pause")) {
             handlePauseCommand(chatId, commandArguments(text));
             return;
@@ -118,7 +126,8 @@ public class TelegramCommandService {
         } else if (text.contains("Check Tickets") || text.contains("Check Now") || isCommand(text, "check")) {
             sessions.remove(chatId);
             int sent = scheduler.pollActiveWatchesForChat(chatId);
-            telegramService.sendMessage(chatId, "🔄 <b>Checked District (Vizag)!</b> Notifications triggered: " + sent);
+            telegramService.sendMessage(chatId, sent < 0 ? "A ticket check is already running. Please try again shortly."
+                    : "🔄 <b>Checked District (Vizag)!</b> Provider requests accepted: " + sent);
             return;
         } else if (text.contains("Clear All") || isCommand(text, "clear")) {
             sessions.remove(chatId);
@@ -232,6 +241,8 @@ public class TelegramCommandService {
                 <code>/pause ID</code> — pause a watch
                 <code>/resume ID</code> — resume a watch
                 <code>/snooze ID MINUTES</code> — temporarily silence a watch
+                <code>/once ID</code> — send one alert
+                <code>/repeat ID</code> — repeat reminders
                 <code>/delete ID</code> — delete a watch
                 <code>/check</code> — check your watches immediately
                 <code>/clear</code> — delete all your watches
@@ -651,7 +662,8 @@ public class TelegramCommandService {
             sendActiveWatchesMenu(chatId);
         } else if (data.equals("menu:check_now")) {
             int count = scheduler.pollActiveWatchesForChat(chatId);
-            telegramService.sendMessage(chatId, "🔄 <b>Checked District (Vizag)!</b> Notifications triggered: <b>" + count + "</b>");
+            telegramService.sendMessage(chatId, count < 0 ? "A ticket check is already running. Please try again shortly."
+                    : "🔄 <b>Checked District (Vizag)!</b> Provider requests accepted: <b>" + count + "</b>");
         } else if (data.equals("menu:cancel")) {
             sessions.remove(chatId);
             telegramService.sendMessage(chatId, "❌ Action cancelled.");
@@ -852,6 +864,8 @@ public class TelegramCommandService {
                     .append("   🏛 ").append(escapeHtml(theatreInfo))
                     .append(" | 🖥 ").append(escapeHtml(screenInfo))
                     .append(" | 📅 ").append(escapeHtml(r.getTargetDate()))
+                    .append(" | ").append(r.isRepeatAlerts() ? "Repeating" : "Once")
+                    .append("\n   ").append(escapeHtml(r.getLastCheckMessage() == null ? "Not checked yet" : r.getLastCheckMessage()))
                     .append("\n\n");
 
             keyboard.add(List.of(

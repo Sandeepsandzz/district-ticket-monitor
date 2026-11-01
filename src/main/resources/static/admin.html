@@ -45,6 +45,9 @@
     <input id="token" type="password" placeholder="API_ADMIN_TOKEN">
     <button id="refresh">Refresh</button>
     <button id="check" class="secondary">Check tickets now</button>
+    <button id="export" class="secondary">Export watches</button>
+    <button id="import" class="secondary">Import watches</button>
+    <input id="backupFile" type="file" accept="application/json,.json" hidden>
     <span class="muted">Token is sent only as <code>X-Admin-Token</code>.</span>
   </section>
   <div id="message"></div>
@@ -99,14 +102,17 @@
   }
   function row(w) {
     const paused = w.acknowledged;
-    const filters = `${esc(w.theatreName || '—')} · ${esc(w.screenFilter || '—')}<br>${esc(w.targetDate || '—')}`;
+    const filters = `${esc(w.theatreName || '—')} · ${esc(w.screenFilter || '—')}<br>${esc(w.targetDate || '—')}<br><span class="muted">${esc(w.lastCheckStatus || 'NOT CHECKED')} · ${esc(date(w.lastCheckedAt))}<br>${esc(w.lastCheckMessage || '')}</span>`;
     return `<tr><td>#${esc(w.id)}</td><td><strong>${esc(w.movieName)}</strong><br><span class="muted">${esc(w.city)}</span></td><td><code>${esc(w.chatId)}</code></td><td>${filters}</td><td>${esc(w.alertCount)}<br><span class="muted">${esc(date(w.lastAlertedAt))}</span></td><td><span class="pill ${paused ? 'paused' : 'ok'}">${paused ? 'PAUSED' : 'ACTIVE'}</span></td><td><div class="actions"><button class="secondary" onclick="toggle(${w.id},${paused})">${paused ? 'Resume' : 'Pause'}</button><button class="secondary" onclick="snooze(${w.id})">Snooze</button><button class="danger" onclick="removeWatch(${w.id})">Delete</button></div></td></tr>`;
   }
   async function toggle(id, paused) { try { await api(`/api/watches/${id}/${paused ? 'resume' : 'acknowledge'}`, {method:'POST'}); await load(); } catch(e) { message(e.message, true); } }
   async function snooze(id) { const minutes = prompt('Snooze for how many minutes?', '15'); if (minutes === null) return; try { await api(`/api/watches/${id}/snooze?minutes=${encodeURIComponent(minutes)}`, {method:'POST'}); await load(); } catch(e) { message(e.message, true); } }
   async function removeWatch(id) { if (!confirm(`Delete watch #${id}?`)) return; try { await api(`/api/watches/${id}`, {method:'DELETE'}); await load(); } catch(e) { message(e.message, true); } }
   $('refresh').addEventListener('click', load);
-  $('check').addEventListener('click', async () => { try { await api('/api/watches/check-now', {method:'POST'}); message('Ticket check started.'); await load(); } catch(e) { message(e.message, true); } });
+  $('check').addEventListener('click', async () => { try { const result=await api('/api/watches/check-now', {method:'POST'}); await load(); message(result.status==='BUSY'?'A ticket check is already running. Try again shortly.':`Check finished. Provider requests accepted: ${result.notificationsSent}`); } catch(e) { message(e.message, true); } });
+  $('export').addEventListener('click', async () => { try { const watches=await api('/api/admin/watches'); const url=URL.createObjectURL(new Blob([JSON.stringify(watches,null,2)],{type:'application/json'})); const a=document.createElement('a'); a.href=url; a.download='district-watches-backup.json'; a.click(); URL.revokeObjectURL(url); message('Watch backup downloaded. Keep it private.'); } catch(e){message(e.message,true);} });
+  $('import').addEventListener('click', () => $('backupFile').click());
+  $('backupFile').addEventListener('change', async event => { const file=event.target.files[0]; if(!file)return; try { const data=JSON.parse(await file.text()); if(!Array.isArray(data))throw new Error('Backup must contain an array of watches.'); if(!confirm(`Import up to ${data.length} watches? Existing matching watches will be skipped.`))return; const result=await api('/api/admin/watches/import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}); await load(); message(`Imported ${result.imported} watches; skipped ${result.skipped}.`); } catch(e){message(e.message,true);} finally{event.target.value='';} });
 </script>
 </body>
 </html>

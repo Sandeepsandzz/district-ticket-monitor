@@ -7,6 +7,7 @@ import com.district.monitor.scheduler.TicketWatchScheduler;
 import com.district.monitor.service.DistrictScraperService;
 import com.district.monitor.service.TelegramCommandService;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -20,10 +21,17 @@ import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Map;
+import org.springframework.transaction.annotation.Transactional;
 
 @RestController
 @RequestMapping("/api")
 public class WatchAndTelegramController {
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record BackupWatch(String chatId, String city, String movieName, String theatreName, String screenFilter,
+                              String targetDate, String languageFilter, String formatFilter, String movieUrl,
+                              BigDecimal maxPrice, Integer minAvailableSeats, Boolean acknowledged, Integer alertCount,
+                              Instant lastAlertedAt, Instant snoozedUntil, Instant createdAt, Boolean repeatAlerts) {}
 
     private final WatchRuleRepository repository;
     private final TicketWatchScheduler scheduler;
@@ -109,6 +117,49 @@ public class WatchAndTelegramController {
         }
         return ResponseEntity.ok(repository.findAll());
     }
+
+    /** Imports exported watch definitions without overwriting an existing watch. IDs are assigned by the target database. */
+    @PostMapping("/admin/watches/import")
+    @Transactional
+    public ResponseEntity<?> importWatches(@RequestHeader(value = "X-Admin-Token", required = false) String suppliedToken,
+                                           @RequestBody List<BackupWatch> backup) {
+        if (!isAuthorized(adminToken, suppliedToken)) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        if (backup == null || backup.size() > 2000) return ResponseEntity.badRequest().body(Map.of("error", "Expected at most 2000 watches"));
+        for (BackupWatch item : backup) {
+            if (item == null || item.chatId() == null || !item.chatId().matches("-?\\d{1,20}")
+                    || item.movieName() == null || item.movieName().isBlank() || item.movieName().length() > 255
+                    || backupTooLong(item.city()) || backupTooLong(item.theatreName()) || backupTooLong(item.screenFilter())
+                    || backupTooLong(item.languageFilter()) || backupTooLong(item.formatFilter()) || backupTooLong(item.movieUrl())
+                    || !validDateFilter(item.targetDate())
+                    || (item.movieUrl() != null && !item.movieUrl().isBlank() && !scraperService.isAllowedMoviePageUrl(item.movieUrl())))
+                return ResponseEntity.badRequest().body(Map.of("error", "Invalid watch in backup; nothing was imported"));
+        }
+        int imported = 0, skipped = 0;
+        for (BackupWatch item : backup) {
+            boolean exists = repository.findByChatId(item.chatId()).stream().anyMatch(r ->
+                    r.getMovieName().equalsIgnoreCase(item.movieName())
+                    && backupValue(r.getTheatreName()).equals(backupValue(item.theatreName()))
+                    && backupValue(r.getScreenFilter()).equals(backupValue(item.screenFilter()))
+                    && backupValue(r.getTargetDate()).equals(backupValue(item.targetDate())));
+            if (exists) { skipped++; continue; }
+            WatchRule rule = new WatchRule(item.chatId(), item.city(), item.movieName(), item.theatreName(),
+                    item.screenFilter(), item.targetDate(), item.languageFilter(), item.formatFilter(), item.movieUrl(),
+                    item.maxPrice(), item.minAvailableSeats());
+            rule.setAcknowledged(Boolean.TRUE.equals(item.acknowledged()));
+            rule.setAlertCount(item.alertCount() == null ? 0 : Math.max(0, item.alertCount()));
+            rule.setLastAlertedAt(item.lastAlertedAt()); rule.setSnoozedUntil(item.snoozedUntil()); rule.setCreatedAt(item.createdAt());
+            rule.setRepeatAlerts(item.repeatAlerts() == null || item.repeatAlerts());
+            repository.save(rule); imported++;
+        }
+        return ResponseEntity.ok(Map.of("imported", imported, "skipped", skipped));
+    }
+
+    private String backupValue(String value) {
+        return value == null || value.isBlank() || "ANY".equalsIgnoreCase(value.trim())
+                ? "any" : value.trim().toLowerCase(java.util.Locale.ROOT);
+    }
+
+    private boolean backupTooLong(String value) { return value != null && value.length() > 255; }
 
     @GetMapping("/watches")
     public ResponseEntity<List<WatchRule>> listWatches(
@@ -198,7 +249,7 @@ public class WatchAndTelegramController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
         int triggered = scheduler.pollActiveWatches();
-        return ResponseEntity.ok(Map.of("status", "COMPLETED", "notificationsSent", triggered));
+        return ResponseEntity.ok(Map.of("status", triggered < 0 ? "BUSY" : "COMPLETED", "notificationsSent", Math.max(0, triggered)));
     }
 
     @PostMapping("/telegram/webhook")

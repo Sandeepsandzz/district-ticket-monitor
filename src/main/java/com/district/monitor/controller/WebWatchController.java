@@ -2,6 +2,8 @@ package com.district.monitor.controller;
 
 import com.district.monitor.entity.WatchRule;
 import com.district.monitor.repository.WatchRuleRepository;
+import com.district.monitor.repository.AlertEventRepository;
+import com.district.monitor.repository.AlertDeliveryRepository;
 import com.district.monitor.scheduler.TicketWatchScheduler;
 import com.district.monitor.service.DistrictScraperService;
 import com.district.monitor.service.TelegramCommandService;
@@ -25,24 +27,32 @@ public class WebWatchController {
     private final DistrictScraperService scraper;
     private final TelegramCommandService telegram;
     private final TicketWatchScheduler scheduler;
+    private final AlertEventRepository events;
+    private final AlertDeliveryRepository deliveries;
 
     public record LinkRequest(String code) {}
-    public record WatchRequest(String movieName, String movieUrl, String theatreName, String screen, String date) {}
+    public record WatchRequest(String movieName, String movieUrl, String theatreName, String screen, String date, Boolean repeatAlerts) {}
+    public record PreferenceRequest(Boolean repeatAlerts) {}
     public record WatchView(Long id, String movie, String theatre, String screen, String date,
-                            boolean paused, Instant snoozedUntil, int alertCount) {
+                            boolean paused, Instant snoozedUntil, int alertCount, boolean repeatAlerts,
+                            Instant lastCheckedAt, String lastCheckStatus, String lastCheckMessage) {
         static WatchView from(WatchRule rule) {
             return new WatchView(rule.getId(), rule.getMovieName(), rule.getTheatreName(), rule.getScreenFilter(),
-                    rule.getTargetDate(), rule.isAcknowledged(), rule.getSnoozedUntil(), rule.getAlertCount());
+                    rule.getTargetDate(), rule.isAcknowledged(), rule.getSnoozedUntil(), rule.getAlertCount(),
+                    rule.isRepeatAlerts(), rule.getLastCheckedAt(), rule.getLastCheckStatus(), rule.getLastCheckMessage());
         }
     }
 
     public WebWatchController(WebLinkService links, WatchRuleRepository repository, DistrictScraperService scraper,
-                              TelegramCommandService telegram, TicketWatchScheduler scheduler) {
+                              TelegramCommandService telegram, TicketWatchScheduler scheduler,
+                              AlertEventRepository events, AlertDeliveryRepository deliveries) {
         this.links = links;
         this.repository = repository;
         this.scraper = scraper;
         this.telegram = telegram;
         this.scheduler = scheduler;
+        this.events = events;
+        this.deliveries = deliveries;
     }
 
     @PostMapping("/link")
@@ -87,6 +97,20 @@ public class WebWatchController {
         return repository.findByChatId(chat(authorization)).stream().map(WatchView::from).toList();
     }
 
+    @GetMapping("/history")
+    public List<Map<String,Object>> history(@RequestHeader(value = "Authorization", required = false) String authorization) {
+        return events.findTop50ByChatIdOrderByCreatedAtDesc(chat(authorization)).stream().map(event -> {
+            var statuses = deliveries.findByEventId(event.getId()).stream().map(d -> Map.of(
+                    "channel", d.getChannel(), "status", d.getStatus(), "attempts", d.getAttempts(),
+                    "detail", d.getErrorMessage() == null ? "" : d.getErrorMessage())).toList();
+            return Map.<String,Object>of("watchId", event.getWatchId(), "createdAt", event.getCreatedAt(),
+                    "movie", event.getMovieName() == null ? "" : event.getMovieName(),
+                    "theatre", event.getTheatreName() == null ? "" : event.getTheatreName(),
+                    "screen", event.getScreenName() == null ? "" : event.getScreenName(),
+                    "showtimes", event.getShowtimes() == null ? "" : event.getShowtimes(), "deliveries", statuses);
+        }).toList();
+    }
+
     @PostMapping("/watches")
     public WatchView create(@RequestHeader(value = "Authorization", required = false) String authorization,
                             @RequestBody WatchRequest request) {
@@ -106,8 +130,19 @@ public class WebWatchController {
                 && request.screen().trim().equalsIgnoreCase(rule.getScreenFilter()) && request.date().equals(rule.getTargetDate()))) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "This alert already exists");
         }
-        return WatchView.from(repository.save(new WatchRule(chatId, "vizag", request.movieName(), request.theatreName(),
-                request.screen(), request.date(), "ANY", "ANY", request.movieUrl())));
+        WatchRule rule = new WatchRule(chatId, "vizag", request.movieName(), request.theatreName(),
+                request.screen(), request.date(), "ANY", "ANY", request.movieUrl());
+        rule.setRepeatAlerts(request.repeatAlerts() == null || request.repeatAlerts());
+        return WatchView.from(repository.save(rule));
+    }
+
+    @PostMapping("/watches/{id}/preference")
+    public WatchView preference(@RequestHeader(value = "Authorization", required = false) String authorization,
+                                @PathVariable Long id, @RequestBody PreferenceRequest request) {
+        WatchRule rule = owned(id, chat(authorization));
+        if (request == null || request.repeatAlerts() == null) throw bad("Choose an alert preference");
+        rule.setRepeatAlerts(request.repeatAlerts());
+        return WatchView.from(repository.save(rule));
     }
 
     @PostMapping("/watches/{id}/{action}")
@@ -130,8 +165,9 @@ public class WebWatchController {
     }
 
     @PostMapping("/check")
-    public Map<String, Integer> check(@RequestHeader(value = "Authorization", required = false) String authorization) {
-        return Map.of("notificationsSent", scheduler.pollActiveWatchesForChat(chat(authorization)));
+    public Map<String, Object> check(@RequestHeader(value = "Authorization", required = false) String authorization) {
+        int accepted = scheduler.pollActiveWatchesForChat(chat(authorization));
+        return Map.of("status", accepted < 0 ? "BUSY" : "COMPLETED", "notificationsSent", Math.max(0, accepted));
     }
 
     private WatchRule owned(Long id, String chatId) {

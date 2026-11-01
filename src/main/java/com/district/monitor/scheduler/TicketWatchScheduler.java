@@ -12,8 +12,14 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import org.jsoup.nodes.Document;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -43,7 +49,7 @@ public class TicketWatchScheduler {
         this.maxAlertsPerWatch = Math.max(1, maxAlertsPerWatch);
     }
 
-    @Scheduled(fixedDelayString = "${district.poll-interval-ms:120000}")
+    @Scheduled(fixedDelayString = "${district.poll-interval-ms:120000}", initialDelayString = "${district.initial-delay-ms:0}")
     public int pollActiveWatches() {
         return poll(repository.findByAcknowledgedFalse());
     }
@@ -56,7 +62,7 @@ public class TicketWatchScheduler {
     private int poll(List<WatchRule> activeWatches) {
         if (!pollLock.tryLock()) {
             log.debug("Skipping ticket poll because another poll is already running.");
-            return 0;
+            return -1;
         }
         try {
             return pollActiveWatchesLocked(activeWatches);
@@ -73,23 +79,43 @@ public class TicketWatchScheduler {
         log.info("Polling District for {} unacknowledged watch rule(s)...", activeWatches.size());
         int notificationsSent = 0;
         Instant now = Instant.now();
+        Map<String, Document> pageCache = new HashMap<>();
 
         for (WatchRule rule : activeWatches) {
+            if (isPast(rule.getTargetDate())) {
+                if (!"EXPIRED".equals(rule.getLastCheckStatus())) {
+                    rule.setLastCheckStatus("EXPIRED");
+                    rule.setLastCheckMessage("The selected show date has passed");
+                    repository.save(rule);
+                }
+                continue;
+            }
             // 1. Respect Snooze window if user tapped "Snooze 15m"
             if (rule.getSnoozedUntil() != null && now.isBefore(rule.getSnoozedUntil())) {
                 continue;
             }
 
-            // 2. Respect Persistent Repeat Cooldown (avoid spamming faster than repeatIntervalMinutes)
-            if (rule.getLastAlertedAt() != null
-                    && now.isBefore(rule.getLastAlertedAt().plus(repeatIntervalMinutes, ChronoUnit.MINUTES))) {
-                continue;
-            }
-
             try {
+                notificationsSent += notificationDispatcher.retryPending(rule);
+                boolean pending = notificationDispatcher.hasPending(rule.getId());
+                if (!pending && rule.getAlertCount() >= maxAlertsPerWatch && rule.isRepeatAlerts()) {
+                    rule.setAcknowledged(true);
+                    repository.save(rule);
+                    continue;
+                }
+                if (!rule.isRepeatAlerts() && rule.getAlertCount() > 0) {
+                    rule.setLastCheckStatus("NOTIFIED_ONCE");
+                    rule.setLastCheckMessage(pending ? "Notification sent; retrying other channels" : "One-time alert sent");
+                    repository.save(rule);
+                    continue;
+                }
                 Thread.sleep(ThreadLocalRandom.current().nextLong(400, 1500));
 
-                AvailabilityCheckResult result = scraperService.checkWatchRule(rule);
+                AvailabilityCheckResult result = scraperService.checkWatchRule(rule, pageCache);
+                rule.setLastCheckedAt(Instant.now());
+                rule.setLastCheckStatus(result.checkStatus());
+                rule.setLastCheckMessage(result.checkMessage());
+                repository.save(rule);
 
             // Cache discovered movie URL if valid movie page (not seat-layout or root /movies)
             if (rule.getMovieUrl() == null && result.bookingUrl() != null && result.bookingUrl().contains("-movie-tickets-")) {
@@ -97,7 +123,9 @@ public class TicketWatchScheduler {
                 repository.save(rule);
             }
 
-            if (result.isAvailable()) {
+            boolean cooldown = rule.getLastAlertedAt() != null
+                    && now.isBefore(rule.getLastAlertedAt().plus(repeatIntervalMinutes, ChronoUnit.MINUTES));
+            if (result.isAvailable() && !pending && !cooldown && (rule.isRepeatAlerts() || rule.getAlertCount() == 0)) {
                 int currentAttempt = rule.getAlertCount() + 1;
                 String theatresStr = result.matchedTheatres().isEmpty()
                         ? (rule.getTheatreName() != null ? rule.getTheatreName() : "Open in City")
@@ -138,15 +166,13 @@ public class TicketWatchScheduler {
                         .formatted(rule.getMovieName(), rule.getCity().toUpperCase(), theatresStr, screensStr, showtimesStr,
                                 rule.getTargetDate());
 
-                notificationDispatcher.dispatchAlert(rule, htmlMsg, plainMsg, result.bookingUrl());
-
-                rule.setAlertCount(currentAttempt);
-                rule.setLastAlertedAt(now);
-                if (currentAttempt >= maxAlertsPerWatch) {
-                    rule.setAcknowledged(true);
+                if (notificationDispatcher.queueAlert(rule, htmlMsg, plainMsg, result.bookingUrl(), showtimesStr)) {
+                    notificationsSent += notificationDispatcher.retryPending(rule);
+                } else {
+                    rule.setLastCheckStatus("DELIVERY_UNAVAILABLE");
+                    rule.setLastCheckMessage("Tickets found, but no notification channel is enabled");
+                    repository.save(rule);
                 }
-                repository.save(rule);
-                notificationsSent++;
             }
             } catch (InterruptedException ie) {
                 Thread.currentThread().interrupt();
@@ -157,6 +183,12 @@ public class TicketWatchScheduler {
             }
         }
         return notificationsSent;
+    }
+
+    private boolean isPast(String date) {
+        if (date == null || date.isBlank() || "ANY".equalsIgnoreCase(date)) return false;
+        try { return LocalDate.parse(date).isBefore(LocalDate.now(ZoneId.of("Asia/Kolkata"))); }
+        catch (DateTimeParseException e) { return false; }
     }
 
     private String escapeHtml(String value) {

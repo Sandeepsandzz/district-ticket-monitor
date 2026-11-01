@@ -64,6 +64,12 @@ public class WatchRule {
     @Column(nullable = false)
     private Instant createdAt = Instant.now();
 
+    @Column private Instant lastCheckedAt;
+    @Column(length = 30) private String lastCheckStatus;
+    @Column(length = 500) private String lastCheckMessage;
+    // Null for existing rows means the original repeating behavior.
+    @Column private Boolean repeatAlerts;
+
     public WatchRule() {
     }
 
@@ -167,4 +173,13 @@ public class WatchRule {
     public Instant getSnoozedUntil() { return snoozedUntil; }
     public void setSnoozedUntil(Instant snoozedUntil) { this.snoozedUntil = snoozedUntil; }
     public Instant getCreatedAt() { return createdAt; }
+    public void setCreatedAt(Instant value) { if (value != null) createdAt = value; }
+    public Instant getLastCheckedAt() { return lastCheckedAt; }
+    public void setLastCheckedAt(Instant value) { lastCheckedAt = value; }
+    public String getLastCheckStatus() { return lastCheckStatus; }
+    public void setLastCheckStatus(String value) { lastCheckStatus = value; }
+    public String getLastCheckMessage() { return lastCheckMessage; }
+    public void setLastCheckMessage(String value) { lastCheckMessage = value; }
+    public boolean isRepeatAlerts() { return repeatAlerts == null || repeatAlerts; }
+    public void setRepeatAlerts(boolean value) { repeatAlerts = value; }
 }

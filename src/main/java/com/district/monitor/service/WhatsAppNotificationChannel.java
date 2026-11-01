@@ -48,6 +48,7 @@ public class WhatsAppNotificationChannel implements NotificationChannel {
     }
 
     @Override public String channelName() { return "WhatsApp"; }
+    @Override public boolean appliesTo(WatchRule rule) { return isEnabled() && rule != null && ownerChatId.equals(rule.getChatId()); }
 
     @Override public boolean isEnabled() {
         return enabled && !accessToken.isBlank() && version.matches("v\\d+\\.\\d+")
