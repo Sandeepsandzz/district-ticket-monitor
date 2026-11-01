@@ -4,11 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>District Ticket Monitor</title>
+  <link rel="icon" href="/logo.svg" type="image/svg+xml">
   <style>
     :root { font-family: Inter, system-ui, sans-serif; color: #eaf0ff; background: #0a1020; }
     * { box-sizing: border-box; } body { margin: 0; background: radial-gradient(ellipse at 85% 0, #23376b 0, transparent 40%), #0a1020; min-height: 100vh; }
     main { max-width: 1080px; margin: auto; padding: 34px 20px 64px; } header { display:flex; justify-content:space-between; align-items:center; gap:20px; }
-    .brand { font-weight: 800; letter-spacing:-.03em; font-size: 20px; } .brand span { color:#a8baff; } .location { font-size:12px; color:#b5c4e5; padding:8px 12px; background:#192642; border-radius:99px; }
+    .brand { display:flex; align-items:center; gap:10px; min-width:0; font-weight:800; letter-spacing:-.03em; font-size:20px; } .brand img { width:44px; height:44px; flex:none; } .brand span { color:#a8baff; } .location { font-size:12px; color:#b5c4e5; padding:8px 12px; background:#192642; border-radius:99px; }
     .hero { padding: 62px 0 36px; max-width: 680px; } .eyebrow { color:#a5b5ff; text-transform:uppercase; letter-spacing:.15em; font-weight:700; font-size:12px; }
     h1 { font-size:clamp(34px,6vw,58px); letter-spacing:-.05em; line-height:1.04; margin:14px 0; } h2 { margin:0 0 8px; font-size:21px; } p { color:#acbbd7; line-height:1.6; }
     .grid { display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:start; } .card { background:rgba(20,31,55,.94); border:1px solid #2d3a59; border-radius:18px; padding:24px; box-shadow:0 16px 45px #0002; }
@@ -17,11 +18,11 @@
     button:disabled { opacity:.5; cursor:wait; } .secondary { background:#263957; color:#eaf0ff; } .danger { color:#ffb1b1; background:#412736; } .row { display:flex; gap:8px; flex-wrap:wrap; margin-top:18px; } .row button { flex:1; }
     .note { color:#f4d78d; font-size:12px; margin-top:7px; } .status { min-height:24px; color:#c2d0ff; font-size:14px; margin:16px 0; } .status.error { color:#ffb3b3; }
     .watch { border-top:1px solid #34425e; padding:16px 0; } .watch strong { display:block; font-size:16px; } .watch p { margin:5px 0 0; } .tag { color:#91e9be; font-size:12px; font-weight:700; } .tag.paused { color:#f4d78d; } .watch .row { margin-top:10px; } .watch button { padding:8px 10px; font-size:12px; }
-    .hidden { display:none !important; } a { color:#bac8ff; } footer { font-size:12px; color:#8f9fbd; margin-top:28px; } @media(max-width:720px) { .grid { grid-template-columns:1fr; } .hero { padding-top:40px; } }
+    .hidden { display:none !important; } a { color:#bac8ff; } footer { font-size:12px; color:#8f9fbd; margin-top:28px; } @media(max-width:720px) { .grid { grid-template-columns:1fr; } .hero { padding-top:40px; } } @media(max-width:360px) { .brand { font-size:17px; gap:7px; } .brand img { width:38px; height:38px; } .location { font-size:10px; padding:7px 9px; } }
   </style>
 </head>
 <body><main>
-  <header><div class="brand">◉ district<span>watch</span></div><div class="location">📍 VISAKHAPATNAM</div></header>
+  <header><div class="brand"><img src="/logo.svg" alt="" width="44" height="44"><div>district<span>watch</span></div></div><div class="location">📍 VISAKHAPATNAM</div></header>
   <div class="hero"><div class="eyebrow">Your movie night, sorted</div><h1>Know when tickets go live.</h1><p>Choose your movie, theatre, screen and date. We’ll send your alerts straight to Telegram.</p></div>
   <div id="message" class="status" role="status" aria-live="polite"></div>
   <section id="linkCard" class="card" style="max-width:620px">

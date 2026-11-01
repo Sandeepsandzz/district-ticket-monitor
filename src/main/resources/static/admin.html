@@ -4,12 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>District Ticket Monitor Admin</title>
+  <link rel="icon" href="/logo.svg" type="image/svg+xml">
   <style>
     :root { color-scheme: dark; --bg:#0b1220; --panel:#121c2f; --muted:#94a3b8; --text:#e5edf8; --accent:#38bdf8; --danger:#fb7185; --ok:#4ade80; }
     * { box-sizing: border-box; }
     body { margin:0; background:linear-gradient(145deg,#0b1220,#17233b); color:var(--text); font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif; }
     main { max-width:1200px; margin:0 auto; padding:28px 18px 48px; }
     h1 { margin:0 0 4px; font-size:clamp(24px,4vw,36px); }
+    .brand { display:flex; align-items:center; gap:14px; } .brand img { width:52px; height:52px; flex:none; }
     h2 { margin:0 0 12px; font-size:18px; }
     .subtitle,.muted { color:var(--muted); }
     .toolbar,.cards,.panel { background:rgba(18,28,47,.9); border:1px solid #263653; border-radius:16px; box-shadow:0 12px 30px rgba(0,0,0,.2); }
@@ -38,8 +40,8 @@
 </head>
 <body>
 <main>
-  <h1>District Ticket Monitor</h1>
-  <div class="subtitle">Admin dashboard for Vizag movie watches and scraper health.</div>
+  <header class="brand"><img src="/logo.svg" alt="" width="52" height="52"><div><h1>District Ticket Monitor</h1>
+  <div class="subtitle">Admin dashboard for Vizag movie watches and scraper health.</div></div></header>
 
   <section class="toolbar">
     <input id="token" type="password" placeholder="API_ADMIN_TOKEN">
