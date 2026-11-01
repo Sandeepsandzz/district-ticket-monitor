@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>District Ticket Monitor</title>
+  <style>
+    :root { font-family: Inter, system-ui, sans-serif; color: #eaf0ff; background: #0a1020; }
+    * { box-sizing: border-box; } body { margin: 0; background: radial-gradient(ellipse at 85% 0, #23376b 0, transparent 40%), #0a1020; min-height: 100vh; }
+    main { max-width: 1080px; margin: auto; padding: 34px 20px 64px; } header { display:flex; justify-content:space-between; align-items:center; gap:20px; }
+    .brand { font-weight: 800; letter-spacing:-.03em; font-size: 20px; } .brand span { color:#a8baff; } .location { font-size:12px; color:#b5c4e5; padding:8px 12px; background:#192642; border-radius:99px; }
+    .hero { padding: 62px 0 36px; max-width: 680px; } .eyebrow { color:#a5b5ff; text-transform:uppercase; letter-spacing:.15em; font-weight:700; font-size:12px; }
+    h1 { font-size:clamp(34px,6vw,58px); letter-spacing:-.05em; line-height:1.04; margin:14px 0; } h2 { margin:0 0 8px; font-size:21px; } p { color:#acbbd7; line-height:1.6; }
+    .grid { display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:start; } .card { background:rgba(20,31,55,.94); border:1px solid #2d3a59; border-radius:18px; padding:24px; box-shadow:0 16px 45px #0002; }
+    .card p { margin: 0 0 20px; font-size:14px; } label { display:block; font-size:13px; font-weight:700; margin:16px 0 7px; } input, select { width:100%; padding:12px; border:1px solid #415172; border-radius:9px; color:#eef3ff; background:#0d172a; font:inherit; }
+    button, .button { display:inline-block; border:0; border-radius:9px; padding:12px 16px; background:#a8baff; color:#111b35; font:inherit; font-size:14px; font-weight:750; cursor:pointer; text-decoration:none; }
+    button:disabled { opacity:.5; cursor:wait; } .secondary { background:#263957; color:#eaf0ff; } .danger { color:#ffb1b1; background:#412736; } .row { display:flex; gap:8px; flex-wrap:wrap; margin-top:18px; } .row button { flex:1; }
+    .note { color:#f4d78d; font-size:12px; margin-top:7px; } .status { min-height:24px; color:#c2d0ff; font-size:14px; margin:16px 0; } .status.error { color:#ffb3b3; }
+    .watch { border-top:1px solid #34425e; padding:16px 0; } .watch strong { display:block; font-size:16px; } .watch p { margin:5px 0 0; } .tag { color:#91e9be; font-size:12px; font-weight:700; } .tag.paused { color:#f4d78d; } .watch .row { margin-top:10px; } .watch button { padding:8px 10px; font-size:12px; }
+    .hidden { display:none !important; } a { color:#bac8ff; } footer { font-size:12px; color:#8f9fbd; margin-top:28px; } @media(max-width:720px) { .grid { grid-template-columns:1fr; } .hero { padding-top:40px; } }
+  </style>
+</head>
+<body><main>
+  <header><div class="brand">◉ district<span>watch</span></div><div class="location">📍 VISAKHAPATNAM</div></header>
+  <div class="hero"><div class="eyebrow">Your movie night, sorted</div><h1>Know when tickets go live.</h1><p>Choose your movie, theatre, screen and date. We’ll send your alerts straight to Telegram.</p></div>
+  <div id="message" class="status" role="status" aria-live="polite"></div>
+  <section id="linkCard" class="card" style="max-width:620px">
+    <h2>Connect Telegram</h2><p>Open your bot, send <strong>/link</strong> in a private chat, then paste the code it sends you. The code expires after 10 minutes.</p>
+    <a class="button secondary" href="https://t.me/district_monitot_bot" target="_blank" rel="noopener noreferrer">Open Telegram bot ↗</a>
+    <form id="linkForm"><label for="code">One-time linking code</label><input id="code" required autocomplete="off" spellcheck="false" placeholder="Paste your code here"><div class="row"><button type="submit">Connect Telegram</button></div></form>
+  </section>
+  <div id="app" class="grid hidden">
+    <section class="card"><h2>Create an alert</h2><p>We’ll watch your selection and notify your linked Telegram chat.</p>
+      <form id="watchForm">
+        <label for="movie">Movie</label><select id="movie" required><option value="">Loading movies…</option></select>
+        <label for="customMovie" class="hidden" id="customMovieLabel">Movie name</label><input id="customMovie" class="hidden" maxlength="120">
+        <label for="customMovieUrl" class="hidden" id="customMovieUrlLabel">District movie page URL</label><input id="customMovieUrl" class="hidden" type="url" placeholder="https://www.district.in/movies/...">
+        <div id="movieNote" class="note hidden">After entering the link, leave the field to load theatres.</div>
+        <label for="theatre">Theatre</label><select id="theatre" required disabled><option value="">Select a movie first</option></select><div id="theatreNote" class="note"></div>
+        <label for="customTheatre" class="hidden" id="customTheatreLabel">Enter theatre name</label><input id="customTheatre" class="hidden" maxlength="100">
+        <label for="screen">Screen</label><select id="screen" required disabled><option value="">Select a theatre first</option></select><div id="screenNote" class="note"></div>
+        <label for="customScreen" class="hidden" id="customScreenLabel">Enter screen name</label><input id="customScreen" class="hidden" maxlength="100">
+        <label for="date">Show date</label><input id="date" type="date" required>
+        <div class="row"><button id="create" type="submit">Create Telegram alert</button></div>
+      </form>
+    </section>
+    <section class="card"><h2>Your alerts</h2><p>These are shared with your Telegram bot.</p><div class="row"><button class="secondary" id="refresh" type="button">Refresh</button><button class="secondary" id="check" type="button">Check now</button></div><div id="watches"><p>Loading alerts…</p></div><div class="row"><button class="secondary" id="logout" type="button">Disconnect this browser</button></div></section>
+  </div>
+  <footer>Screen and theatre suggestions may be unverified before bookings open. Telegram linking lasts up to 24 hours and ends when the service restarts.</footer>
+</main>
+<script>
+  const $ = id => document.getElementById(id);
+  const CUSTOM = '__custom__';
+  let auth = sessionStorage.getItem('districtWebToken') || '', movies = [], selectionVersion = 0;
+  const say = (message, error=false) => { $('message').textContent = message; $('message').classList.toggle('error', error); };
+  async function api(path, options={}) {
+    const headers = {'Accept':'application/json', ...(auth ? {'Authorization':'Bearer '+auth} : {}), ...(options.body ? {'Content-Type':'application/json'} : {})};
+    const response = await fetch('/api/web'+path, {...options, headers, cache:'no-store'});
+    if (!response.ok) {
+      if (response.status === 401 && path !== '/link') { auth=''; sessionStorage.removeItem('districtWebToken'); showLink(); }
+      const details = await response.json().catch(() => ({}));
+      throw new Error(details.message || (response.status === 401 ? 'Invalid or expired code. Please connect again.' : response.status === 409 ? 'This alert already exists.' : 'Request failed ('+response.status+'). Please try again.'));
+    }
+    return response.status === 204 ? null : response.json();
+  }
+  function showLink() { $('linkCard').classList.remove('hidden'); $('app').classList.add('hidden'); }
+  function option(value, label) { const o=document.createElement('option'); o.value=value; o.textContent=label; return o; }
+  function resetSelect(id, label) { const s=$(id); s.replaceChildren(option('',label)); s.disabled=true; }
+  function fillSelect(id, items, placeholder) { const s=$(id); s.replaceChildren(option('',placeholder)); items.forEach(item=>s.append(option(item,item))); s.append(option(CUSTOM,'Enter a custom name…')); s.disabled=false; }
+  function custom(id, enabled) { $(id).classList.toggle('hidden',!enabled); $(id+'Label').classList.toggle('hidden',!enabled); $(id).required=enabled; if (!enabled) $(id).value=''; }
+  function selectedMovie() { return $('movie').value===CUSTOM ? {name:$('customMovie').value.trim(),url:$('customMovieUrl').value.trim()} : movies[Number($('movie').value)]; }
+  async function init() { $('linkCard').classList.add('hidden'); $('app').classList.remove('hidden'); $('date').min=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Kolkata',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date()); await Promise.all([loadMovies(),loadWatches()]); }
+  async function loadMovies() {
+    try { const data=await api('/movies'); movies=[]; const select=$('movie'); select.replaceChildren(option('','Choose a movie'));
+      for (const [key,label] of [['showing','Now showing / booking open'],['upcoming','Upcoming · nationwide']]) { const group=document.createElement('optgroup'); group.label=label;
+        for (const movie of data[key]) { const index=movies.push(movie)-1; group.append(option(String(index), movie.name+(movie.releaseDate ? ' · '+movie.releaseDate : ''))); } select.append(group); }
+      select.append(option(CUSTOM,'Enter another movie…'));
+      if (!movies.length) say('Movies are temporarily unavailable. You can enter a District movie link.',true);
+    } catch(e) { say(e.message,true); }
+  }
+  async function loadTheatres() { const version=++selectionVersion; resetSelect('theatre','Loading theatres…'); resetSelect('screen','Select a theatre first'); custom('customTheatre',false); custom('customScreen',false); $('theatreNote').textContent=''; $('screenNote').textContent='';
+    const movie=selectedMovie(); if ($('movie').value==='' || !movie || !movie.url) { resetSelect('theatre','Select a movie first'); return; }
+    try { const data=await api('/theatres?'+new URLSearchParams({movieUrl:movie.url})); if(version!==selectionVersion)return; fillSelect('theatre',data.items,'Choose a theatre'); $('theatreNote').textContent=data.suggested?'Suggested theatres are unverified for this movie.':''; } catch(e) { if(version===selectionVersion) say(e.message,true); }
+  }
+  async function loadScreens() { const version=++selectionVersion; resetSelect('screen','Loading screens…'); custom('customScreen',false); $('screenNote').textContent=''; const selected=$('theatre').value; custom('customTheatre',selected===CUSTOM); const theatre=selected===CUSTOM ? $('customTheatre').value.trim() : selected; const movie=selectedMovie();
+    if (!theatre || !movie) { resetSelect('screen','Select a theatre first'); return; }
+    try { const data=await api('/screens?'+new URLSearchParams({movieUrl:movie.url,theatre})); if(version!==selectionVersion)return; fillSelect('screen',data.items,'Choose a screen'); $('screenNote').textContent=data.suggested?'Suggested screens are unverified for this theatre.':''; } catch(e) { if(version===selectionVersion) say(e.message,true); }
+  }
+  async function loadWatches() { try { const watches=await api('/watches'); const root=$('watches'); root.replaceChildren(); if(!watches.length){const p=document.createElement('p');p.textContent='No alerts yet. Create your first one here.';root.append(p);return;}
+    for (const w of watches) { const el=document.createElement('div'); el.className='watch'; const title=document.createElement('strong'); title.textContent=w.movie+' #'+w.id; const state=document.createElement('span'); state.className='tag'+(w.paused?' paused':''); state.textContent=w.paused?'PAUSED':w.snoozedUntil && new Date(w.snoozedUntil)>new Date()?'SNOOZED':'ACTIVE'; const detail=document.createElement('p'); detail.textContent=[w.theatre || 'Any theatre',w.screen,w.date].join(' · '); const actions=document.createElement('div'); actions.className='row';
+      for(const [label,action,cls] of [[w.paused?'Resume':'Pause',w.paused?'resume':'pause','secondary'],['Snooze 15m','snooze','secondary'],['Delete','delete','danger']]) { const b=document.createElement('button'); b.type='button'; b.className=cls; b.textContent=label; b.onclick=async()=>{ if(action==='delete' && !confirm('Delete this alert?'))return; b.disabled=true; try { await api('/watches/'+w.id+(action==='delete'?'':'/'+action),{method:action==='delete'?'DELETE':'POST'}); await loadWatches(); say('Alert updated.'); } catch(e){say(e.message,true);} finally{b.disabled=false;} }; actions.append(b); } el.append(title,state,detail,actions); root.append(el); }
+    } catch(e) { say(e.message,true); } }
+  $('linkForm').onsubmit=async e=>{e.preventDefault(); try { const result=await api('/link',{method:'POST',body:JSON.stringify({code:$('code').value.trim()})}); auth=result.token; sessionStorage.setItem('districtWebToken',auth); $('code').value=''; say('Telegram connected.'); await init(); } catch(err){say(err.message,true);} };
+  $('movie').onchange=()=>{const enabled=$('movie').value===CUSTOM;custom('customMovie',enabled);custom('customMovieUrl',enabled);$('movieNote').classList.toggle('hidden',!enabled);loadTheatres();}; $('customMovieUrl').onchange=loadTheatres; $('theatre').onchange=loadScreens; $('customTheatre').onchange=loadScreens; $('screen').onchange=()=>custom('customScreen',$('screen').value===CUSTOM);
+  $('watchForm').onsubmit=async e=>{e.preventDefault(); const movie=selectedMovie(); if(!movie)return; const payload={movieName:movie.name,movieUrl:movie.url,theatreName:$('theatre').value===CUSTOM?$('customTheatre').value.trim():$('theatre').value,screen:$('screen').value===CUSTOM?$('customScreen').value.trim():$('screen').value,date:$('date').value}; $('create').disabled=true; try { await api('/watches',{method:'POST',body:JSON.stringify(payload)}); say('Alert created. Your Telegram bot will notify you when matching tickets are available.'); await loadWatches(); } catch(err){say(err.message,true);} finally{$('create').disabled=false;} };
+  $('refresh').onclick=loadWatches; $('check').onclick=async()=>{ $('check').disabled=true; try{ const r=await api('/check',{method:'POST'}); say('Check finished. Telegram alerts sent: '+r.notificationsSent); await loadWatches(); }catch(e){say(e.message,true);}finally{$('check').disabled=false;} };
+  $('logout').onclick=async()=>{ try{await api('/logout',{method:'POST'});}catch(e){} auth='';sessionStorage.removeItem('districtWebToken');showLink();say('Disconnected this browser.'); };
+  if(auth)init(); else showLink();
+</script></body></html>

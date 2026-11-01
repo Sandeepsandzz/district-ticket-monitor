@@ -28,6 +28,7 @@ public class TelegramCommandService {
     private final TelegramNotificationService telegramService;
     private final TicketWatchScheduler scheduler;
     private final DistrictScraperService scraperService;
+    private final WebLinkService webLinkService;
 
     // Per-user interactive wizard session map
     private final Map<String, WizardSession> sessions = new ConcurrentHashMap<>();
@@ -36,12 +37,14 @@ public class TelegramCommandService {
             WatchRuleRepository repository,
             TelegramNotificationService telegramService,
             @Lazy TicketWatchScheduler scheduler,
-            DistrictScraperService scraperService
+            DistrictScraperService scraperService,
+            WebLinkService webLinkService
     ) {
         this.repository = repository;
         this.telegramService = telegramService;
         this.scheduler = scheduler;
         this.scraperService = scraperService;
+        this.webLinkService = webLinkService;
     }
 
     public void processTelegramUpdate(JsonNode update) {
@@ -59,7 +62,16 @@ public class TelegramCommandService {
         String text = message.has("text") ? message.get("text").asText().trim() : "";
 
         // Handle persistent dock button taps or slash commands
-        if (isCommand(text, "pause")) {
+        if (isCommand(text, "link")) {
+            if (!"private".equals(message.path("chat").path("type").asText())) {
+                telegramService.sendMessage(chatId, "Please send /link to me in a private chat.");
+            } else {
+                String code = webLinkService.issueCode(chatId);
+                telegramService.sendMessage(chatId, "🔐 <b>Website linking code</b>\n\n<code>" + code
+                        + "</code>\n\nPaste this into the website within 10 minutes. It can be used once; keep it private.");
+            }
+            return;
+        } else if (isCommand(text, "pause")) {
             handlePauseCommand(chatId, commandArguments(text));
             return;
         } else if (isCommand(text, "resume")) {
@@ -389,7 +401,7 @@ public class TelegramCommandService {
         telegramService.sendWithInlineKeyboard(chatId, msg, keyboard);
     }
 
-    private List<String> getScreensForTheatre(String theatreName) {
+    public List<String> getScreensForTheatre(String theatreName) {
         if (theatreName == null || theatreName.isBlank()) {
             return List.of("Screen 1", "Screen 2", "Screen 3", "Screen 4", "Screen 5", "Screen 6", "Screen 7", "Screen 8");
         }

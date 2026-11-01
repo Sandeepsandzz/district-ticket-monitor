@@ -41,6 +41,12 @@ A cloud-ready **Java 21 + Spring Boot 3.3** microservice integrated with an **In
 - The database uses `DATA_DIR` (defaults to `./data`). For Render, attach a persistent disk mounted at `/app/data` and set `DATA_DIR=/app/data`; without persistent storage, watches can be lost on restart or redeploy. Keep this service to one instance while using the file-backed H2 database.
 - Generate `API_ADMIN_TOKEN` with a cryptographically secure random value and store it only in the service environment.
 
+## Web interface
+
+Open `/` on the same deployed service and send `/link` to the bot in a private Telegram chat. Paste the one-time code into the website within 10 minutes. Your browser can then create, view, pause, resume, snooze, delete, and check the same alerts used by Telegram. Notifications continue to be delivered to the linked chat.
+
+The code is single-use and the browser session lasts up to 24 hours. Both are held in server memory, so a restart or redeploy requires linking again; the browser also forgets its session when its tab closes. Never share a linking code. If District has not published theatres or screens, the site labels fallback suggestions as unverified. Like Telegram watches, saved alerts need persistent storage to survive a Render redeploy.
+
 ## Telegram watch management
 
 After creating a watch, use its numeric ID with these commands:
