@@ -61,6 +61,18 @@ After creating a watch, use its numeric ID with these commands:
 
 The watch wizard intentionally has no price, seat-count, language, or format filters. Its purpose is to notify you when tickets open for one exact movie, theatre, screen, and date.
 
+## Optional WhatsApp test alerts
+
+WhatsApp is disabled by default. This integration supports a single configured recipient and only sends watches belonging to one specified private Telegram chat; it does not route different users to different WhatsApp numbers.
+
+1. Create a Meta developer app with the WhatsApp product and use its test WhatsApp Business account and test sender. In Meta's dashboard, add and verify the WhatsApp recipient number you want to test. Consult Meta's [Cloud API getting-started collection](https://www.postman.com/meta/whatsapp-business-platform/documentation/wlk6lh4/whatsapp-cloud-api) for the access token, sender **phone number ID** (not the phone number itself), and Graph API version. Meta test credentials can expire.
+2. In a private Telegram conversation with your bot, send `/chatid` to obtain your owner chat ID. Do not post it publicly.
+3. In Render's environment settings, configure `WHATSAPP_ENABLED=true`, `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_API_VERSION` (for example `v22.0`, using the version offered by Meta), `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_RECIPIENT` (country code and digits only, for example `919876543210`), `WHATSAPP_OWNER_CHAT_ID`, `WHATSAPP_TEMPLATE_NAME=hello_world`, and `WHATSAPP_TEMPLATE_LANGUAGE=en_US`. Never commit credentials or paste the access token into chat. Restart/redeploy if Render requires it for environment changes.
+4. Once deployed, send `/whatsapptest` to the bot in that same private chat. The bot reports whether Meta accepted the request; check WhatsApp to confirm actual delivery. Meta's pre-approved `hello_world` is a generic test message **without movie details**. While configured, a matching ticket alert for the owner will also send that generic test message. Telegram continues to provide the full details.
+5. For a real ticket-details message, create and have Meta approve a text template in the selected language with exactly five body variables in order: movie, theatre, screen, show date, and booking URL. For example: `Tickets available: {{1}} at {{2}}, {{3}}, on {{4}}. Book: {{5}}`. Set `WHATSAPP_TEMPLATE_NAME` to its approved name and the appropriate language code. Meta's classification and approval are not guaranteed. The `/whatsapptest` command intentionally works only with `hello_world`.
+
+Meta's test account is for development and is not a guaranteed free production solution. Production messages and providers may charge; verify [Meta's current pricing](https://developers.facebook.com/documentation/business-messaging/whatsapp/pricing) before enabling production. Existing repeat-alert settings also apply to WhatsApp, so each repeat may be billed. A successful API request indicates acceptance, not delivery; the application does not yet track WhatsApp delivery receipts or retry independently from Telegram. Telegram remains enabled.
+
 ## Admin dashboard
 
 Open `/admin.html` on the deployed service and enter the `API_ADMIN_TOKEN` configured in the service environment. The dashboard shows watch counts, scraper health, active/paused watches, and actions for pausing, resuming, snoozing, checking, and deleting watches.

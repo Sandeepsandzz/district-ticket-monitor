@@ -45,6 +45,16 @@ api:
   admin-token: ${API_ADMIN_TOKEN:}
 
 notifications:
+  # Optional Meta test account; scoped to the configured Telegram chat.
+  whatsapp:
+    enabled: ${WHATSAPP_ENABLED:false}
+    access-token: ${WHATSAPP_ACCESS_TOKEN:}
+    api-version: ${WHATSAPP_API_VERSION:}
+    phone-number-id: ${WHATSAPP_PHONE_NUMBER_ID:}
+    recipient: ${WHATSAPP_RECIPIENT:}
+    owner-chat-id: ${WHATSAPP_OWNER_CHAT_ID:}
+    template: ${WHATSAPP_TEMPLATE_NAME:}
+    language: ${WHATSAPP_TEMPLATE_LANGUAGE:en_US}
   # Persistent alert settings: re-notify until user clicks "Acknowledge & Stop" in Telegram
   persistent:
     repeat-interval-minutes: ${REPEAT_ALERT_MINS:3}

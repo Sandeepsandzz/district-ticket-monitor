@@ -60,6 +60,8 @@ public class TelegramNotificationService implements NotificationChannel {
                 Map.of("command", "menu", "description", "🍿 Open Vizag Main Menu"),
                 Map.of("command", "new", "description", "➕ New Movie Alert"),
                 Map.of("command", "link", "description", "🔐 Link the website"),
+                Map.of("command", "chatid", "description", "🔑 Show your private chat ID"),
+                Map.of("command", "whatsapptest", "description", "🧪 Test WhatsApp connection"),
                 Map.of("command", "list", "description", "📋 My Active Alerts"),
                 Map.of("command", "mywatches", "description", "📋 List all my watches"),
                 Map.of("command", "pause", "description", "⏸ Pause a watch by ID"),

@@ -29,6 +29,7 @@ public class TelegramCommandService {
     private final TicketWatchScheduler scheduler;
     private final DistrictScraperService scraperService;
     private final WebLinkService webLinkService;
+    private final WhatsAppNotificationChannel whatsAppChannel;
 
     // Per-user interactive wizard session map
     private final Map<String, WizardSession> sessions = new ConcurrentHashMap<>();
@@ -38,13 +39,15 @@ public class TelegramCommandService {
             TelegramNotificationService telegramService,
             @Lazy TicketWatchScheduler scheduler,
             DistrictScraperService scraperService,
-            WebLinkService webLinkService
+            WebLinkService webLinkService,
+            WhatsAppNotificationChannel whatsAppChannel
     ) {
         this.repository = repository;
         this.telegramService = telegramService;
         this.scheduler = scheduler;
         this.scraperService = scraperService;
         this.webLinkService = webLinkService;
+        this.whatsAppChannel = whatsAppChannel;
     }
 
     public void processTelegramUpdate(JsonNode update) {
@@ -62,7 +65,28 @@ public class TelegramCommandService {
         String text = message.has("text") ? message.get("text").asText().trim() : "";
 
         // Handle persistent dock button taps or slash commands
-        if (isCommand(text, "link")) {
+        if (isCommand(text, "whatsapptest")) {
+            if (!"private".equals(message.path("chat").path("type").asText())) {
+                telegramService.sendMessage(chatId, "Please use /whatsapptest in a private chat.");
+            } else {
+                try {
+                    boolean sent = whatsAppChannel.sendHelloWorldTest(chatId);
+                    telegramService.sendMessage(chatId, sent
+                            ? "WhatsApp accepted the test request. Check your WhatsApp for Meta's hello_world message."
+                            : "WhatsApp test is unavailable. Check the configuration and use the hello_world template with the owner chat ID.");
+                } catch (RuntimeException e) {
+                    telegramService.sendMessage(chatId, "WhatsApp test failed. Check your Meta test number, token and server logs.");
+                }
+            }
+            return;
+        } else if (isCommand(text, "chatid")) {
+            if (!"private".equals(message.path("chat").path("type").asText())) {
+                telegramService.sendMessage(chatId, "Please send /chatid to me in a private chat.");
+            } else {
+                telegramService.sendMessage(chatId, "Your private Telegram chat ID: <code>" + chatId + "</code>");
+            }
+            return;
+        } else if (isCommand(text, "link")) {
             if (!"private".equals(message.path("chat").path("type").asText())) {
                 telegramService.sendMessage(chatId, "Please send /link to me in a private chat.");
             } else {
