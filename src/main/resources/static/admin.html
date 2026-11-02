@@ -5,41 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>District Ticket Monitor Admin</title>
   <link rel="icon" href="/logo.svg" type="image/svg+xml">
-  <style>
-    :root { color-scheme: dark; --bg:#0b1220; --panel:#121c2f; --muted:#94a3b8; --text:#e5edf8; --accent:#38bdf8; --danger:#fb7185; --ok:#4ade80; }
-    * { box-sizing: border-box; }
-    body { margin:0; background:linear-gradient(145deg,#0b1220,#17233b); color:var(--text); font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif; }
-    main { max-width:1200px; margin:0 auto; padding:28px 18px 48px; }
-    h1 { margin:0 0 4px; font-size:clamp(24px,4vw,36px); }
-    .brand { display:flex; align-items:center; gap:14px; } .brand img { width:52px; height:52px; flex:none; }
-    h2 { margin:0 0 12px; font-size:18px; }
-    .subtitle,.muted { color:var(--muted); }
-    .toolbar,.cards,.panel { background:rgba(18,28,47,.9); border:1px solid #263653; border-radius:16px; box-shadow:0 12px 30px rgba(0,0,0,.2); }
-    .toolbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin:22px 0; padding:14px; }
-    input { min-width:260px; flex:1; border:1px solid #334765; border-radius:9px; background:#0c1628; color:var(--text); padding:10px 12px; }
-    button { border:0; border-radius:9px; padding:10px 13px; color:#062033; background:var(--accent); cursor:pointer; font-weight:700; }
-    button.secondary { background:#334765; color:var(--text); }
-    button.danger { background:var(--danger); color:#2a0710; }
-    button:disabled { cursor:not-allowed; opacity:.55; }
-    .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:1px; overflow:hidden; margin-bottom:18px; }
-    .card { background:rgba(18,28,47,.9); padding:18px; }
-    .card strong { display:block; font-size:28px; margin-top:5px; }
-    .panel { padding:18px; overflow:auto; }
-    .panel + .panel { margin-top:18px; }
-    table { width:100%; border-collapse:collapse; min-width:920px; }
-    th,td { text-align:left; border-bottom:1px solid #263653; padding:11px 8px; vertical-align:top; }
-    th { color:#bae6fd; font-size:12px; text-transform:uppercase; letter-spacing:.05em; }
-    .pill { display:inline-block; padding:3px 8px; border-radius:99px; font-size:12px; font-weight:700; }
-    .pill.ok { background:#123a2a; color:var(--ok); }
-    .pill.paused { background:#3d2a15; color:#fbbf24; }
-    .actions { display:flex; flex-wrap:wrap; gap:6px; }
-    .actions button { padding:7px 9px; font-size:12px; }
-    #message { min-height:24px; margin:8px 0; color:#bae6fd; }
-    code { color:#bae6fd; }
-  </style>
+  <link rel="stylesheet" href="/app.css">
 </head>
 <body>
-<main>
+<main class="admin-main">
   <header class="brand"><img src="/logo.svg" alt="" width="52" height="52"><div><h1>District Ticket Monitor</h1>
   <div class="subtitle">Admin dashboard for Vizag movie watches and scraper health.</div></div></header>
 
