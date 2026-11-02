@@ -7,18 +7,16 @@
   <link rel="icon" href="/logo.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/app.css">
 </head>
-<body><div class="reel-backdrop" aria-hidden="true"><div class="reel-track"><div class="reel-set"><div class="reel-frame frame-forest"><span>2021 · SUKUMAR</span><b>PUSHPA</b><small>THE RISE</small></div><div class="reel-frame frame-palace"><span>2015 · S. S. RAJAMOULI</span><b>BAAHUBALI</b><small>THE BEGINNING</small></div><div class="reel-frame frame-fire"><span>2022 · S. S. RAJAMOULI</span><b>RRR</b><small>RISE · ROAR · REVOLT</small></div><div class="reel-frame frame-temple"><span>2006 · PURI JAGANNADH</span><b>POKIRI</b><small>TELUGU CINEMA</small></div><div class="reel-frame frame-palace"><span>1957 · K. V. REDDY</span><b>MAYABAZAR</b><small>A TELUGU CLASSIC</small></div><div class="reel-frame frame-forest"><span>2012 · S. S. RAJAMOULI</span><b>EEGA</b><small>TELUGU CINEMA</small></div></div><div class="reel-set"><div class="reel-frame frame-forest"><span>2021 · SUKUMAR</span><b>PUSHPA</b><small>THE RISE</small></div><div class="reel-frame frame-palace"><span>2015 · S. S. RAJAMOULI</span><b>BAAHUBALI</b><small>THE BEGINNING</small></div><div class="reel-frame frame-fire"><span>2022 · S. S. RAJAMOULI</span><b>RRR</b><small>RISE · ROAR · REVOLT</small></div><div class="reel-frame frame-temple"><span>2006 · PURI JAGANNADH</span><b>POKIRI</b><small>TELUGU CINEMA</small></div><div class="reel-frame frame-palace"><span>1957 · K. V. REDDY</span><b>MAYABAZAR</b><small>A TELUGU CLASSIC</small></div><div class="reel-frame frame-forest"><span>2012 · S. S. RAJAMOULI</span><b>EEGA</b><small>TELUGU CINEMA</small></div></div></div></div><main>
+<body><div id="movieReel" class="reel-backdrop" aria-hidden="true"></div><main>
   <header><div class="brand"><img src="/logo.svg" alt="" width="44" height="44"><div>district<span>watch</span></div></div><div class="location">VISAKHAPATNAM, INDIA</div></header>
   <section class="hero" aria-labelledby="hero-title">
-    <div class="hero-copy"><div class="eyebrow">A tribute to Telugu cinema</div><h1 id="hero-title">“Thaggedhe <span class="shine">Le.”</span></h1><p class="dialogue-credit">— <a href="https://indianexpress.com/article/entertainment/telugu/allu-arjun-raises-the-heat-at-siima-after-party-as-he-grooves-to-oo-antava-video-8146282/" target="_blank" rel="noopener noreferrer">Pushpa: The Rise (2021) ↗</a></p><p>Pick your movie, theatre, screen and date. We’ll watch for ticket releases and send the alert straight to Telegram.</p>
+    <div class="hero-copy"><div class="eyebrow">MOVIE ALERTS IN VISAKHAPATNAM</div><h1 id="hero-title">Your next movie.<br><span class="shine">Your moment.</span></h1><p>Pick your movie, theatre, screen and date. We’ll watch for ticket releases and send the alert straight to Telegram.</p>
       <div class="proof"><span><b>✦</b> Screen specific</span><span><b>✦</b> Citywide theatres</span><span><b>✦</b> Telegram alerts</span></div>
     </div>
-    <div class="hero-art" aria-hidden="true"><div class="ticket-visual"><img src="/logo.svg" alt=""><div class="ticket-copy"><small>your next movie night</small><strong>Almost showtime.</strong><span>We’ll keep an eye on tickets.</span></div><div class="ticket-cut"></div></div><div class="signal"><span class="signal-dot"></span>Watching for the drop</div></div>
   </section>
   <div id="message" class="status" role="status" aria-live="polite"></div>
   <section id="linkCard" class="card">
-    <div class="card-head"><div class="card-icon" aria-hidden="true">✦</div><div><h2>“Okasari commit aithe…”</h2><p><a href="https://timesofindia.indiatimes.com/entertainment/telugu/movies/news/australian-cricketer-pat-cummins-delivers-iconic-telugu-film-dialogues-from-pushpa-and-pokiri/articleshow/109564786.cms" target="_blank" rel="noopener noreferrer">— Pokiri (2006) ↗</a></p><p>Connect your Telegram chat to build and manage movie alerts here.</p></div></div>
-    <a class="button telegram-link" href="https://t.me/district_monitot_bot" target="_blank" rel="noopener noreferrer">Open your Telegram bot <span aria-hidden="true">↗</span></a>
+    <div class="card-head"><div class="card-icon" aria-hidden="true">✦</div><div><h2>Connect Telegram</h2><p>In Telegram, search for <strong>@district_monitot_bot</strong> and send <strong>/link</strong>. Paste the code you receive below.</p></div></div>
     <form id="linkForm"><label for="code">One time linking code</label><input id="code" required autocomplete="off" spellcheck="false" placeholder="Paste the code from your bot"><div class="row"><button type="submit">Connect Telegram <span aria-hidden="true">→</span></button></div></form>
   </section>
   <div id="app" class="grid hidden">
@@ -27,7 +25,7 @@
       <form id="watchForm">
         <label for="movie">Movie</label><select id="movie" required><option value="">Loading movies…</option></select>
         <label for="customMovie" class="hidden" id="customMovieLabel">Movie name</label><input id="customMovie" class="hidden" maxlength="120">
-        <label for="customMovieUrl" class="hidden" id="customMovieUrlLabel">District movie page URL</label><input id="customMovieUrl" class="hidden" type="url" placeholder="https://www.district.in/movies/...">
+        <label for="customMovieUrl" class="hidden" id="customMovieUrlLabel">District movie page URL</label><input id="customMovieUrl" class="hidden" type="url" placeholder="Paste the District movie page address">
         <div id="movieNote" class="note hidden">After entering the link, leave the field to load theatres.</div>
         <label for="theatre">Theatre</label><select id="theatre" required disabled><option value="">Select a movie first</option></select><div id="theatreNote" class="note"></div>
         <label for="customTheatre" class="hidden" id="customTheatreLabel">Enter theatre name</label><input id="customTheatre" class="hidden" maxlength="255">
@@ -43,6 +41,12 @@
   <footer>Some theatre and screen suggestions may be unverified before bookings open. Telegram connection lasts up to 24 hours and ends if the service restarts.</footer>
 </main>
 <script>
+  const reelColumns = [
+    ['Bhakta Prahlada','Malliswari','Mayabazar','Gundamma Katha','Sankarabharanam','Sagara Sangamam','Geethanjali','Shiva','Gang Leader','Ninne Pelladatha','Nuvve Kavali','Anand'],
+    ['Pathala Bhairavi','Missamma','Devadasu','Muthyala Muggu','Aditya 369','Jagadeka Veerudu Athiloka Sundari','Pokiri','Bommarillu','Magadheera','Eega','Attarintiki Daredi','Manam'],
+    ['Baahubali: The Beginning','Baahubali 2','Rangasthalam','Mahanati','Jersey','Ala Vaikunthapurramuloo','Pushpa','RRR','Dasara','Hanuman','Kalki 2898 AD','Comrade Kalyan']
+  ];
+  for (const titles of reelColumns) { const column=document.createElement('div'); column.className='reel-column'; const track=document.createElement('div'); track.className='reel-track'; for(let repeat=0;repeat<2;repeat++){const group=document.createElement('div');group.className='reel-group';for(const title of titles){const item=document.createElement('span');item.className='reel-title';item.textContent=title;group.append(item);}track.append(group);}column.append(track);document.getElementById('movieReel').append(column); }
   const $ = id => document.getElementById(id);
   const CUSTOM = '__custom__';
   let auth = sessionStorage.getItem('districtWebToken') || '', movies = [], selectionVersion = 0;

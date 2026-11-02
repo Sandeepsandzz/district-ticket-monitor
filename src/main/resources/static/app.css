@@ -20,9 +20,6 @@ body {
   background: radial-gradient(ellipse at 12% -12%, rgba(104,75,207,.3), transparent 39%),
               radial-gradient(ellipse at 94% 20%, rgba(30,120,133,.16), transparent 30%), #080a12;
 }
-body::before { position: fixed; inset: 0; z-index: -1; pointer-events: none; content: ''; opacity: .16;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.15'/%3E%3C/svg%3E");
-}
 main { width: min(1160px, calc(100% - 48px)); margin: auto; padding: 27px 0 56px; }
 header { display:flex; justify-content:space-between; align-items:center; gap:20px; }
 .brand { display:flex; align-items:center; gap:11px; min-width:0; color:#f2f3ff; font:800 19px/1 'Manrope',sans-serif; letter-spacing:-.055em; }
@@ -129,28 +126,24 @@ footer { padding-top:23px; color:#707487; font-size:10px; line-height:1.65; }
 @media(max-width:560px) { main,.admin-main { width:calc(100% - 32px); padding-top:19px; } .brand { font-size:17px; } .brand img { width:38px; height:38px; } .location { padding:8px 10px; font-size:9px; } .hero { display:block; min-height:0; padding:49px 0 30px; } h1 { max-width:480px; font-size:clamp(43px,13vw,65px); } .hero-copy > p { font-size:13px; } .hero-art { position:absolute; top:4px; right:-16px; z-index:0; width:137px; min-height:137px; opacity:.32; transform:scale(.85); transform-origin:top right; } .ticket-visual { width:210px; } .signal { display:none; } .proof { gap:8px 14px; font-size:9px; } #linkCard,.form-card,.alerts-card { padding:19px; border-radius:17px; } .section-head { gap:8px; } .flow-step { gap:5px; font-size:9px; } .flow-step:not(:last-child)::after { margin-right:6px; } .flow-step span:first-child { width:21px; height:21px; } .admin-main .brand { align-items:flex-start; } .admin-main .brand img { width:41px; height:41px; } .admin-main .toolbar { align-items:stretch; } .admin-main .toolbar button { flex:1; } .admin-main .toolbar .muted { width:100%; } }
 @media(prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior:auto !important; animation-duration:.01ms !important; animation-iteration-count:1 !important; transition-duration:.01ms !important; } }
 
-/* An original illustrated tribute, with typographic film references. */
+/* A continuously moving, text-only film reel. */
 body { background:radial-gradient(ellipse at 9% -10%,#572117 0,transparent 38%),radial-gradient(ellipse at 83% 14%,#8b4e192c,transparent 35%),#0c0909; }
-body::before { z-index:0; opacity:.22; }
 main { position:relative; z-index:1; }
-.reel-backdrop { position:fixed; z-index:0; top:0; right:0; bottom:0; width:min(53vw,700px); overflow:hidden; pointer-events:none; opacity:.42; filter:blur(.65px); mask-image:linear-gradient(90deg,transparent 0%,#000 38%,#000 100%); }
-.reel-backdrop::after { position:absolute; inset:0; content:''; background:linear-gradient(90deg,#0c0909 0%,transparent 52%),linear-gradient(0deg,#0c0909 0%,transparent 20%,transparent 80%,#0c0909 100%); }
-.reel-track { display:flex; flex-direction:column; width:100%; animation:reel-roll 72s linear infinite; will-change:transform; }
-.reel-set { display:grid; grid-template-columns:1fr 1fr; gap:14px; padding:7px; }
-.reel-frame { position:relative; display:flex; flex-direction:column; justify-content:flex-end; min-height:230px; overflow:hidden; padding:23px 20px; border:1px solid #e6bc7629; background-color:#261816; background-image:linear-gradient(0deg,rgba(10,6,5,.95),transparent 75%),url('/tollywood-reel.png'); background-size:cover,400% 100%; box-shadow:0 20px 50px #0008; color:#f7d9a4; }
-.reel-frame::after { position:absolute; inset:8px; border:1px solid #f0ce8a36; content:''; }
-.reel-frame span,.reel-frame small { z-index:1; font-size:9px; font-weight:700; letter-spacing:.17em; }
-.reel-frame b { z-index:1; margin:7px 0; font:800 clamp(21px,3vw,41px)/.95 Georgia,serif; letter-spacing:-.04em; }
-.frame-temple { background-position:center,0% center; } .frame-forest { background-position:center,34% center; } .frame-fire { background-position:center,67% center; } .frame-palace { background-position:center,100% center; }
-.reel-frame:nth-child(even) { transform:translateY(40px); }
+.reel-backdrop { position:fixed; z-index:0; inset:0 0 0 auto; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:clamp(12px,2vw,32px); width:min(68vw,980px); overflow:hidden; pointer-events:none; mask-image:linear-gradient(90deg,transparent 0%,#000 32%,#000 100%); }
+.reel-backdrop::after { position:absolute; inset:0; content:''; background:linear-gradient(0deg,#0c0909,transparent 18%,transparent 82%,#0c0909),linear-gradient(90deg,#0c0909 0%,transparent 55%); }
+.reel-column { overflow:hidden; }
+.reel-track { display:flex; flex-direction:column; animation:reel-roll 100s linear infinite; will-change:transform; }
+.reel-column:nth-child(2) .reel-track { animation-duration:125s; animation-delay:-38s; }
+.reel-column:nth-child(3) .reel-track { animation-duration:85s; animation-delay:-23s; }
+.reel-group { display:flex; flex-direction:column; gap:44px; padding:22px 0; }
+.reel-title { color:#f4d6a0; opacity:.4; font:700 clamp(16px,2vw,28px)/1.18 Georgia,serif; letter-spacing:.02em; text-align:center; text-shadow:0 0 25px #e5b56536; overflow-wrap:anywhere; }
+.reel-title:nth-child(3n) { color:#e7e4df; opacity:.3; font-size:clamp(14px,1.7vw,24px); }
+.reel-title:nth-child(4n) { opacity:.6; font-size:clamp(19px,2.3vw,32px); }
 @keyframes reel-roll { from { transform:translateY(0); } to { transform:translateY(-50%); } }
-.hero-copy .dialogue-credit { margin:0 0 20px; color:#eacb94; font-size:12px; letter-spacing:.04em; }
-.dialogue-credit a,.card-head a { color:#edc384; }
 .hero-copy h1 .shine { background-image:linear-gradient(100deg,#ffdca5,#c99250); }
 .eyebrow,.section-kicker { color:#e9bf7d; }
 .card { background:linear-gradient(145deg,rgba(39,26,24,.96),rgba(16,12,13,.94)); border-color:#c8934f40; }
 .button,button { background:linear-gradient(120deg,#f1d19d,#bd8547); box-shadow:0 8px 24px #b76d2425; color:#25150f; }
 .secondary { background:#ffffff09; color:#f3e5d1; }
-.hero-art::before { background:#a94d234d; }
-@media(max-width:560px) { .reel-backdrop { width:78vw; opacity:.28; } .reel-frame { min-height:165px; padding:14px; } .reel-frame b { font-size:22px; } .reel-frame span,.reel-frame small { font-size:7px; } }
+@media(max-width:560px) { .reel-backdrop { width:100vw; opacity:.65; gap:8px; mask-image:linear-gradient(90deg,transparent 0%,#000 65%); } .reel-group { gap:35px; } .reel-title { font-size:15px; } }
 @media(prefers-reduced-motion:reduce) { .reel-track { animation:none; } }
