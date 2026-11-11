@@ -90,7 +90,12 @@ public class TelegramCommandService {
             if (!"private".equals(message.path("chat").path("type").asText())) {
                 telegramService.sendMessage(chatId, "Please send /link to me in a private chat.");
             } else {
-                String code = webLinkService.issueCode(chatId);
+                String firstName = message.path("from").path("first_name").asText("");
+                String lastName = message.path("from").path("last_name").asText("");
+                String username = message.path("from").path("username").asText("");
+                String profileName = (firstName + (lastName.isBlank() ? "" : " " + lastName)).trim();
+                if (profileName.isBlank() && !username.isBlank()) profileName = "@" + username;
+                String code = webLinkService.issueCode(chatId, profileName);
                 telegramService.sendMessage(chatId, "🔐 <b>Website linking code</b>\n\n<code>" + code
                         + "</code>\n\nPaste this into the website within 10 minutes. It can be used once; keep it private.");
             }

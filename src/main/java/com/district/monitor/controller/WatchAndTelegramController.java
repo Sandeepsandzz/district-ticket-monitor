@@ -3,12 +3,15 @@ package com.district.monitor.controller;
 import com.district.monitor.dto.CreateWatchRequest;
 import com.district.monitor.entity.WatchRule;
 import com.district.monitor.repository.WatchRuleRepository;
+import com.district.monitor.repository.AlertEventRepository;
+import com.district.monitor.repository.AlertDeliveryRepository;
 import com.district.monitor.scheduler.TicketWatchScheduler;
 import com.district.monitor.service.DistrictScraperService;
 import com.district.monitor.service.TelegramCommandService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -39,14 +42,25 @@ public class WatchAndTelegramController {
     private final DistrictScraperService scraperService;
     private final String adminToken;
     private final String webhookSecret;
+    private final AlertEventRepository events;
+    private final AlertDeliveryRepository deliveries;
 
+    public WatchAndTelegramController(WatchRuleRepository repository, TicketWatchScheduler scheduler,
+                                      TelegramCommandService telegramCommandService, DistrictScraperService scraperService,
+                                      String adminToken, String webhookSecret) {
+        this(repository, scheduler, telegramCommandService, scraperService, adminToken, webhookSecret, null, null);
+    }
+
+    @Autowired
     public WatchAndTelegramController(
             WatchRuleRepository repository,
             TicketWatchScheduler scheduler,
             TelegramCommandService telegramCommandService,
             DistrictScraperService scraperService,
             @Value("${api.admin-token:}") String adminToken,
-            @Value("${telegram.webhook-secret:}") String webhookSecret
+            @Value("${telegram.webhook-secret:}") String webhookSecret,
+            AlertEventRepository events,
+            AlertDeliveryRepository deliveries
     ) {
         this.repository = repository;
         this.scheduler = scheduler;
@@ -54,6 +68,8 @@ public class WatchAndTelegramController {
         this.scraperService = scraperService;
         this.adminToken = adminToken;
         this.webhookSecret = webhookSecret;
+        this.events = events;
+        this.deliveries = deliveries;
     }
 
     @GetMapping("/health")
@@ -97,15 +113,36 @@ public class WatchAndTelegramController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
         List<WatchRule> all = repository.findAll();
-        long active = all.stream().filter(rule -> !rule.isAcknowledged()).count();
-        long paused = all.stream().filter(WatchRule::isAcknowledged).count();
+        long active = all.stream().filter(rule -> !rule.isAcknowledged() && !rule.isArchived()).count();
+        long paused = all.stream().filter(rule -> rule.isAcknowledged() && !rule.isArchived()).count();
+        long archived = all.stream().filter(WatchRule::isArchived).count();
         return ResponseEntity.ok(Map.of(
                 "generatedAt", Instant.now(),
                 "totalWatches", all.size(),
                 "activeWatches", active,
                 "pausedWatches", paused,
+                "archivedWatches", archived,
+                "notificationsSent", all.stream().mapToInt(WatchRule::getAlertCount).sum(),
                 "scraper", scraperService.getHealth()
         ));
+    }
+
+    @GetMapping("/admin/analytics")
+    public ResponseEntity<?> adminAnalytics(@RequestHeader(value = "X-Admin-Token", required = false) String suppliedToken) {
+        if (!isAuthorized(adminToken, suppliedToken)) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        List<WatchRule> watches = repository.findAll();
+        var movies = watches.stream().collect(java.util.stream.Collectors.groupingBy(WatchRule::getMovieName, java.util.stream.Collectors.counting()))
+                .entrySet().stream().sorted(Map.Entry.<String, Long>comparingByValue().reversed()).limit(6)
+                .map(e -> Map.of("name", e.getKey(), "count", e.getValue())).toList();
+        var theatres = watches.stream().filter(w -> w.getTheatreName() != null)
+                .collect(java.util.stream.Collectors.groupingBy(WatchRule::getTheatreName, java.util.stream.Collectors.counting()))
+                .entrySet().stream().sorted(Map.Entry.<String, Long>comparingByValue().reversed()).limit(6)
+                .map(e -> Map.of("name", e.getKey(), "count", e.getValue())).toList();
+        long eventCount = events == null ? 0 : events.count();
+        long accepted = deliveries == null ? 0 : deliveries.countByStatus("ACCEPTED");
+        long failed = deliveries == null ? 0 : deliveries.countByStatus("RETRYING");
+        return ResponseEntity.ok(Map.of("events", eventCount, "acceptedDeliveries", accepted,
+                "retryingDeliveries", failed, "movies", movies, "theatres", theatres));
     }
 
     @GetMapping("/admin/watches")
@@ -170,7 +207,7 @@ public class WatchAndTelegramController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
         if (chatId != null && !chatId.isBlank()) {
-            return ResponseEntity.ok(repository.findByChatIdAndAcknowledgedFalse(chatId));
+            return ResponseEntity.ok(repository.findByChatId(chatId));
         }
         return ResponseEntity.ok(repository.findByAcknowledgedFalse());
     }

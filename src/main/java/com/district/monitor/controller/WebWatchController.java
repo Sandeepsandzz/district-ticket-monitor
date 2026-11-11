@@ -35,13 +35,17 @@ public class WebWatchController {
     public record PreferenceRequest(Boolean repeatAlerts) {}
     public record WatchView(Long id, String movie, String theatre, String screen, String date,
                             boolean paused, Instant snoozedUntil, int alertCount, boolean repeatAlerts,
-                            Instant lastCheckedAt, String lastCheckStatus, String lastCheckMessage) {
+                            Instant createdAt, Instant lastCheckedAt, Instant lastAlertedAt,
+                            String lastCheckStatus, String lastCheckMessage, boolean archived, Instant archivedAt) {
         static WatchView from(WatchRule rule) {
             return new WatchView(rule.getId(), rule.getMovieName(), rule.getTheatreName(), rule.getScreenFilter(),
                     rule.getTargetDate(), rule.isAcknowledged(), rule.getSnoozedUntil(), rule.getAlertCount(),
-                    rule.isRepeatAlerts(), rule.getLastCheckedAt(), rule.getLastCheckStatus(), rule.getLastCheckMessage());
+                    rule.isRepeatAlerts(), rule.getCreatedAt(), rule.getLastCheckedAt(), rule.getLastAlertedAt(),
+                    rule.getLastCheckStatus(), rule.getLastCheckMessage(), rule.isArchived(), rule.getArchivedAt());
         }
     }
+
+    public record ProfileView(String displayName, long activeWatches, long totalNotifications) {}
 
     public WebWatchController(WebLinkService links, WatchRuleRepository repository, DistrictScraperService scraper,
                               TelegramCommandService telegram, TicketWatchScheduler scheduler,
@@ -71,6 +75,31 @@ public class WebWatchController {
     public Map<String, List<Map<String, String>>> movies(@RequestHeader(value = "Authorization", required = false) String authorization) {
         chat(authorization);
         return Map.of("showing", scraper.fetchCurrentVizagMovies(), "upcoming", scraper.fetchUpcomingVizagMovies());
+    }
+
+    @GetMapping("/profile")
+    public ProfileView profile(@RequestHeader(value = "Authorization", required = false) String authorization) {
+        var profile = links.resolveProfile(token(authorization));
+        if (profile == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Link your Telegram account again");
+        var watches = repository.findByChatId(profile.chatId());
+        return new ProfileView(profile.displayName(), watches.stream().filter(w -> !w.isAcknowledged() && !w.isArchived()).count(),
+                watches.stream().mapToLong(WatchRule::getAlertCount).sum());
+    }
+
+    @GetMapping("/stats")
+    public Map<String, Object> stats(@RequestHeader(value = "Authorization", required = false) String authorization) {
+        String chatId = chat(authorization);
+        var watches = repository.findByChatId(chatId);
+        var active = watches.stream().filter(w -> !w.isAcknowledged() && !w.isArchived()).toList();
+        String topMovie = watches.stream()
+                .collect(java.util.stream.Collectors.groupingBy(WatchRule::getMovieName, java.util.stream.Collectors.counting()))
+                .entrySet().stream().max(Map.Entry.comparingByValue()).map(Map.Entry::getKey).orElse("—");
+        String topTheatre = watches.stream().filter(w -> w.getTheatreName() != null)
+                .collect(java.util.stream.Collectors.groupingBy(WatchRule::getTheatreName, java.util.stream.Collectors.counting()))
+                .entrySet().stream().max(Map.Entry.comparingByValue()).map(Map.Entry::getKey).orElse("—");
+        return Map.of("activeWatches", active.size(), "totalWatches", watches.size(),
+                "notifications", watches.stream().mapToInt(WatchRule::getAlertCount).sum(),
+                "topMovie", topMovie, "topTheatre", topTheatre);
     }
 
     @GetMapping("/theatres")

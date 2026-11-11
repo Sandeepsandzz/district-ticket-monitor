@@ -6,4 +6,5 @@ import java.util.List;
 
 public interface AlertDeliveryRepository extends JpaRepository<AlertDelivery,Long> {
     List<AlertDelivery> findByEventId(Long eventId);
+    long countByStatus(String status);
 }

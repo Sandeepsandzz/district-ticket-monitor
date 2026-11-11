@@ -83,9 +83,12 @@ public class TicketWatchScheduler {
 
         for (WatchRule rule : activeWatches) {
             if (isPast(rule.getTargetDate())) {
-                if (!"EXPIRED".equals(rule.getLastCheckStatus())) {
+                if (!rule.isArchived() || !"EXPIRED".equals(rule.getLastCheckStatus())) {
                     rule.setLastCheckStatus("EXPIRED");
                     rule.setLastCheckMessage("The selected show date has passed");
+                    rule.setArchived(true);
+                    rule.setArchivedAt(now);
+                    rule.setAcknowledged(true);
                     repository.save(rule);
                 }
                 continue;

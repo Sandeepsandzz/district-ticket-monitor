@@ -70,6 +70,13 @@ public class WatchRule {
     // Null for existing rows means the original repeating behavior.
     @Column private Boolean repeatAlerts;
 
+    // Nullable keeps Hibernate's update path safe for existing PostgreSQL rows.
+    @Column
+    private Boolean archived = false;
+
+    @Column
+    private Instant archivedAt;
+
     public WatchRule() {
     }
 
@@ -182,4 +189,8 @@ public class WatchRule {
     public void setLastCheckMessage(String value) { lastCheckMessage = value; }
     public boolean isRepeatAlerts() { return repeatAlerts == null || repeatAlerts; }
     public void setRepeatAlerts(boolean value) { repeatAlerts = value; }
+    public boolean isArchived() { return Boolean.TRUE.equals(archived); }
+    public void setArchived(boolean value) { archived = value; }
+    public Instant getArchivedAt() { return archivedAt; }
+    public void setArchivedAt(Instant value) { archivedAt = value; }
 }

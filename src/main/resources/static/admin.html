@@ -27,7 +27,15 @@
     <div class="card"><span class="muted">Total watches</span><strong id="total">—</strong></div>
     <div class="card"><span class="muted">Active watches</span><strong id="active">—</strong></div>
     <div class="card"><span class="muted">Paused watches</span><strong id="paused">—</strong></div>
+    <div class="card"><span class="muted">Archived watches</span><strong id="archived">—</strong></div>
+    <div class="card"><span class="muted">Notifications sent</span><strong id="notifications">—</strong></div>
     <div class="card"><span class="muted">Scraper</span><strong id="scraper">—</strong></div>
+  </section>
+
+  <section class="analytics-grid">
+    <div class="panel"><h2>Notification delivery</h2><div class="metric-row"><span>Alert events</span><strong id="events">—</strong></div><div class="metric-row"><span>Accepted deliveries</span><strong id="accepted">—</strong></div><div class="metric-row"><span>Retrying deliveries</span><strong id="retrying">—</strong></div></div>
+    <div class="panel"><h2>Most monitored movies</h2><div id="topMovies" class="rank-list muted">Load the dashboard to see trends.</div></div>
+    <div class="panel"><h2>Most selected theatres</h2><div id="topTheatres" class="rank-list muted">Load the dashboard to see trends.</div></div>
   </section>
 
   <section class="panel">
@@ -64,17 +72,27 @@
       $('total').textContent = summary.totalWatches;
       $('active').textContent = summary.activeWatches;
       $('paused').textContent = summary.pausedWatches;
+      $('archived').textContent = summary.archivedWatches ?? 0;
+      $('notifications').textContent = summary.notificationsSent ?? 0;
       $('scraper').textContent = summary.scraper.status;
       const s = summary.scraper;
       $('scraperDetails').innerHTML = `<span class="pill ${s.status === 'UP' ? 'ok' : 'paused'}">${esc(s.status)}</span> &nbsp; Last success: ${esc(date(s.lastSuccessAt))} &nbsp; Last failure: ${esc(date(s.lastFailureAt))} &nbsp; Consecutive failures: ${esc(s.consecutiveFailures)}${s.lastFailureMessage ? ' &nbsp; Error: ' + esc(s.lastFailureMessage) : ''}`;
       $('watches').innerHTML = watches.length ? watches.map(row).join('') : '<tr><td colspan="7" class="muted">No watches found.</td></tr>';
+      const analytics = await api('/api/admin/analytics');
+      $('events').textContent = analytics.events;
+      $('accepted').textContent = analytics.acceptedDeliveries;
+      $('retrying').textContent = analytics.retryingDeliveries;
+      $('topMovies').innerHTML = rank(analytics.movies);
+      $('topTheatres').innerHTML = rank(analytics.theatres);
       message('Updated ' + new Date().toLocaleTimeString());
     } catch (e) { message(e.message, true); }
   }
+  function rank(items) { return items.length ? items.map((item,index) => `<div class="rank-item"><span>${index + 1}</span><strong>${esc(item.name)}</strong><b>${esc(item.count)}</b></div>`).join('') : '<span class="muted">No watch data yet.</span>'; }
   function row(w) {
     const paused = w.acknowledged;
+    const archived = w.archived;
     const filters = `${esc(w.theatreName || '—')} · ${esc(w.screenFilter || '—')}<br>${esc(w.targetDate || '—')}<br><span class="muted">${esc(w.lastCheckStatus || 'NOT CHECKED')} · ${esc(date(w.lastCheckedAt))}<br>${esc(w.lastCheckMessage || '')}</span>`;
-    return `<tr><td>#${esc(w.id)}</td><td><strong>${esc(w.movieName)}</strong><br><span class="muted">${esc(w.city)}</span></td><td><code>${esc(w.chatId)}</code></td><td>${filters}</td><td>${esc(w.alertCount)}<br><span class="muted">${esc(date(w.lastAlertedAt))}</span></td><td><span class="pill ${paused ? 'paused' : 'ok'}">${paused ? 'PAUSED' : 'ACTIVE'}</span></td><td><div class="actions"><button class="secondary" onclick="toggle(${w.id},${paused})">${paused ? 'Resume' : 'Pause'}</button><button class="secondary" onclick="snooze(${w.id})">Snooze</button><button class="danger" onclick="removeWatch(${w.id})">Delete</button></div></td></tr>`;
+    return `<tr><td>#${esc(w.id)}</td><td><strong>${esc(w.movieName)}</strong><br><span class="muted">${esc(w.city)}</span></td><td><code>${esc(w.chatId)}</code></td><td>${filters}</td><td>${esc(w.alertCount)}<br><span class="muted">${esc(date(w.lastAlertedAt))}</span></td><td><span class="pill ${archived ? 'archived' : paused ? 'paused' : 'ok'}">${archived ? 'ARCHIVED' : paused ? 'PAUSED' : 'ACTIVE'}</span></td><td><div class="actions">${archived ? '' : `<button class="secondary" onclick="toggle(${w.id},${paused})">${paused ? 'Resume' : 'Pause'}</button><button class="secondary" onclick="snooze(${w.id})">Snooze</button>`}<button class="danger" onclick="removeWatch(${w.id})">Delete</button></div></td></tr>`;
   }
   async function toggle(id, paused) { try { await api(`/api/watches/${id}/${paused ? 'resume' : 'acknowledge'}`, {method:'POST'}); await load(); } catch(e) { message(e.message, true); } }
   async function snooze(id) { const minutes = prompt('Snooze for how many minutes?', '15'); if (minutes === null) return; try { await api(`/api/watches/${id}/snooze?minutes=${encodeURIComponent(minutes)}`, {method:'POST'}); await load(); } catch(e) { message(e.message, true); } }

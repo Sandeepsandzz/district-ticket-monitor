@@ -13,7 +13,8 @@ import java.util.concurrent.ConcurrentHashMap;
 /** Short-lived credentials are deliberately kept in memory, never in the database or logs. */
 @Service
 public class WebLinkService {
-    private record Credential(String chatId, Instant expiresAt) {}
+    public record Profile(String chatId, String displayName) {}
+    private record Credential(String chatId, String displayName, Instant expiresAt) {}
     private final SecureRandom random = new SecureRandom();
     private final Clock clock;
     private final Map<String, Credential> codes = new ConcurrentHashMap<>();
@@ -23,10 +24,15 @@ public class WebLinkService {
     WebLinkService(Clock clock) { this.clock = clock; }
 
     public synchronized String issueCode(String chatId) {
+        return issueCode(chatId, "Movie fan");
+    }
+
+    public synchronized String issueCode(String chatId, String displayName) {
         cleanup();
         codes.entrySet().removeIf(entry -> entry.getValue().chatId().equals(chatId));
         String code = randomToken(24);
-        codes.put(code, new Credential(chatId, clock.instant().plus(Duration.ofMinutes(10))));
+        String safeName = displayName == null || displayName.isBlank() ? "Movie fan" : displayName.trim();
+        codes.put(code, new Credential(chatId, safeName, clock.instant().plus(Duration.ofMinutes(10))));
         return code;
     }
 
@@ -35,11 +41,16 @@ public class WebLinkService {
         Credential credential = code == null ? null : codes.remove(code);
         if (credential == null || !credential.expiresAt().isAfter(clock.instant())) return null;
         String token = randomToken(32);
-        sessions.put(token, new Credential(credential.chatId(), clock.instant().plus(Duration.ofHours(24))));
+        sessions.put(token, new Credential(credential.chatId(), credential.displayName(), clock.instant().plus(Duration.ofHours(24))));
         return token;
     }
 
     public String resolve(String token) {
+        Profile profile = resolveProfile(token);
+        return profile == null ? null : profile.chatId();
+    }
+
+    public Profile resolveProfile(String token) {
         if (token == null) return null;
         Credential credential = sessions.get(token);
         if (credential == null) return null;
@@ -47,7 +58,7 @@ public class WebLinkService {
             sessions.remove(token, credential);
             return null;
         }
-        return credential.chatId();
+        return new Profile(credential.chatId(), credential.displayName());
     }
 
     public void logout(String token) { if (token != null) sessions.remove(token); }
