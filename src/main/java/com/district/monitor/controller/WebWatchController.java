@@ -1,13 +1,19 @@
 package com.district.monitor.controller;
 
 import com.district.monitor.entity.WatchRule;
+import com.district.monitor.entity.UserNotificationSettings;
+import com.district.monitor.entity.WebPushSubscription;
 import com.district.monitor.repository.WatchRuleRepository;
 import com.district.monitor.repository.AlertEventRepository;
 import com.district.monitor.repository.AlertDeliveryRepository;
+import com.district.monitor.repository.UserNotificationSettingsRepository;
+import com.district.monitor.repository.WebPushSubscriptionRepository;
 import com.district.monitor.scheduler.TicketWatchScheduler;
 import com.district.monitor.service.DistrictScraperService;
 import com.district.monitor.service.TelegramCommandService;
 import com.district.monitor.service.WebLinkService;
+import com.district.monitor.service.WebPushNotificationChannel;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -29,10 +35,15 @@ public class WebWatchController {
     private final TicketWatchScheduler scheduler;
     private final AlertEventRepository events;
     private final AlertDeliveryRepository deliveries;
+    private final UserNotificationSettingsRepository notificationSettings;
+    private final WebPushSubscriptionRepository pushSubscriptions;
+    private final WebPushNotificationChannel pushChannel;
 
     public record LinkRequest(String code) {}
     public record WatchRequest(String movieName, String movieUrl, String theatreName, String screen, String date, Boolean repeatAlerts) {}
     public record PreferenceRequest(Boolean repeatAlerts) {}
+    public record NotificationPreferences(Boolean emailEnabled, String emailAddress, Boolean pushEnabled) {}
+    public record PushSubscriptionRequest(String endpoint, String p256dh, String auth) {}
     public record WatchView(Long id, String movie, String theatre, String screen, String date,
                             boolean paused, Instant snoozedUntil, int alertCount, boolean repeatAlerts,
                             Instant createdAt, Instant lastCheckedAt, Instant lastAlertedAt,
@@ -50,6 +61,16 @@ public class WebWatchController {
     public WebWatchController(WebLinkService links, WatchRuleRepository repository, DistrictScraperService scraper,
                               TelegramCommandService telegram, TicketWatchScheduler scheduler,
                               AlertEventRepository events, AlertDeliveryRepository deliveries) {
+        this(links, repository, scraper, telegram, scheduler, events, deliveries, null, null, null);
+    }
+
+    @Autowired
+    public WebWatchController(WebLinkService links, WatchRuleRepository repository, DistrictScraperService scraper,
+                              TelegramCommandService telegram, TicketWatchScheduler scheduler,
+                              AlertEventRepository events, AlertDeliveryRepository deliveries,
+                              UserNotificationSettingsRepository notificationSettings,
+                              WebPushSubscriptionRepository pushSubscriptions,
+                              WebPushNotificationChannel pushChannel) {
         this.links = links;
         this.repository = repository;
         this.scraper = scraper;
@@ -57,6 +78,9 @@ public class WebWatchController {
         this.scheduler = scheduler;
         this.events = events;
         this.deliveries = deliveries;
+        this.notificationSettings = notificationSettings;
+        this.pushSubscriptions = pushSubscriptions;
+        this.pushChannel = pushChannel;
     }
 
     @PostMapping("/link")
@@ -84,6 +108,70 @@ public class WebWatchController {
         var watches = repository.findByChatId(profile.chatId());
         return new ProfileView(profile.displayName(), watches.stream().filter(w -> !w.isAcknowledged() && !w.isArchived()).count(),
                 watches.stream().mapToLong(WatchRule::getAlertCount).sum());
+    }
+
+    @GetMapping("/notification-preferences")
+    public Map<String, Object> notificationPreferences(@RequestHeader(value = "Authorization", required = false) String authorization) {
+        String chatId = chat(authorization);
+        UserNotificationSettings value = notificationSettings == null ? null : notificationSettings.findByChatId(chatId).orElse(null);
+        Map<String, Object> response = new java.util.HashMap<>();
+        response.put("emailEnabled", value != null && value.isEmailEnabled());
+        response.put("emailAddress", value == null || value.getEmailAddress() == null ? "" : value.getEmailAddress());
+        response.put("pushEnabled", value != null && value.isPushEnabled());
+        response.put("pushConfigured", pushChannel != null && pushChannel.isConfigured());
+        response.put("pushSubscriptions", pushSubscriptions == null ? 0 : pushSubscriptions.findByChatId(chatId).size());
+        return response;
+    }
+
+    @PutMapping("/notification-preferences")
+    public Map<String, Object> updateNotificationPreferences(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestBody NotificationPreferences request) {
+        String chatId = chat(authorization);
+        if (notificationSettings == null) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Notification settings are unavailable");
+        if (request == null) throw bad("Notification preferences are required");
+        String email = request.emailAddress() == null ? "" : request.emailAddress().trim();
+        if (Boolean.TRUE.equals(request.emailEnabled()) && !validEmail(email)) throw bad("Enter a valid email address");
+        if (Boolean.TRUE.equals(request.pushEnabled()) && (pushChannel == null || !pushChannel.isConfigured())) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Browser push is not configured yet");
+        }
+        UserNotificationSettings value = notificationSettings.findByChatId(chatId).orElseGet(() -> new UserNotificationSettings(chatId));
+        value.setEmailAddress(email);
+        value.setEmailEnabled(Boolean.TRUE.equals(request.emailEnabled()));
+        value.setPushEnabled(Boolean.TRUE.equals(request.pushEnabled()));
+        notificationSettings.save(value);
+        return notificationPreferences(authorization);
+    }
+
+    @GetMapping("/push/config")
+    public Map<String, Object> pushConfig(@RequestHeader(value = "Authorization", required = false) String authorization) {
+        chat(authorization);
+        return Map.of("enabled", pushChannel != null && pushChannel.isConfigured(),
+                "publicKey", pushChannel == null ? "" : pushChannel.publicKey());
+    }
+
+    @PostMapping("/push/subscribe")
+    public Map<String, Object> subscribePush(@RequestHeader(value = "Authorization", required = false) String authorization,
+                                             @RequestBody PushSubscriptionRequest request) {
+        String chatId = chat(authorization);
+        if (pushChannel == null || !pushChannel.isConfigured()) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Browser push is not configured yet");
+        if (request == null || request.endpoint() == null || !request.endpoint().startsWith("https://")
+                || request.endpoint().length() > 2048 || !validEncoded(request.p256dh(), 128) || !validEncoded(request.auth(), 128)) {
+            throw bad("Invalid browser push subscription");
+        }
+        WebPushSubscription saved = pushSubscriptions.findByChatIdAndEndpoint(chatId, request.endpoint()).orElse(null);
+        if (saved == null) pushSubscriptions.save(new WebPushSubscription(chatId, request.endpoint(), request.p256dh(), request.auth()));
+        else { saved.refresh(request.p256dh(), request.auth()); pushSubscriptions.save(saved); }
+        return Map.of("saved", true);
+    }
+
+    @DeleteMapping("/push/subscribe")
+    public void unsubscribePush(@RequestHeader(value = "Authorization", required = false) String authorization,
+                                @RequestParam(required = false) String endpoint) {
+        String chatId = chat(authorization);
+        if (pushSubscriptions == null) return;
+        if (endpoint == null || endpoint.isBlank()) pushSubscriptions.findByChatId(chatId).forEach(pushSubscriptions::delete);
+        else pushSubscriptions.deleteByChatIdAndEndpoint(chatId, endpoint);
     }
 
     @GetMapping("/stats")
@@ -211,4 +299,6 @@ public class WebWatchController {
     private void requireMovieUrl(String url) { if (!scraper.isAllowedMoviePageUrl(url)) throw bad("Choose a valid District movie"); }
     private void requireText(String value, String name, int max) { if (value == null || value.isBlank() || value.length() > max) throw bad("Enter a valid " + name); }
     private ResponseStatusException bad(String message) { return new ResponseStatusException(HttpStatus.BAD_REQUEST, message); }
+    private boolean validEmail(String value) { return value != null && value.length() <= 320 && value.matches("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$"); }
+    private boolean validEncoded(String value, int max) { return value != null && !value.isBlank() && value.length() <= max && value.matches("^[A-Za-z0-9_-]+=*$|^[A-Za-z0-9+/]+=*$"); }
 }

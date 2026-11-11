@@ -41,12 +41,16 @@ A cloud-ready **Java 21 + Spring Boot 3.3** microservice integrated with an **In
 - The database uses `DATA_DIR` (defaults to `./data`). For Render, attach a persistent disk mounted at `/app/data` and set `DATA_DIR=/app/data`; without persistent storage, watches can be lost on restart or redeploy. Keep this service to one instance while using the file-backed H2 database.
 - To use external PostgreSQL, set `JDBC_DATABASE_URL` to the provider's **JDBC** URL (for example `jdbc:postgresql://HOST:5432/DATABASE?sslmode=require`), plus `DATABASE_USERNAME` and `DATABASE_PASSWORD`. Follow the provider's TLS settings. Store credentials only in Render environment variables, never in source or chat. If the database cannot be reached, startup fails instead of silently switching to an empty H2 database.
 - Generate `API_ADMIN_TOKEN` with a cryptographically secure random value and store it only in the service environment.
+- Email backup alerts require `EMAIL_NOTIFY_ENABLED=true`, SMTP settings (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`) and optionally `EMAIL_NOTIFY_FROM`. Users then enter and enable their own email address under Notification Settings. For Gmail, use an app password rather than your normal account password.
+- Browser push alerts require one stable VAPID key pair in `PUSH_VAPID_PUBLIC_KEY` and `PUSH_VAPID_PRIVATE_KEY`, plus `PUSH_VAPID_SUBJECT` (for example `mailto:you@example.com`). Generate the pair with `npx web-push generate-vapid-keys`, keep the private key secret, and never rotate the pair after users subscribe unless you are prepared to have them subscribe again.
 
 ## Web interface
 
 Open `/` on the same deployed service and send `/link` to the bot in a private Telegram chat. Paste the one-time code into the website within 10 minutes. Your browser can then create, view, pause, resume, snooze, delete, and check the same alerts used by Telegram. Notifications continue to be delivered to the linked chat.
 
 The code is single-use and the browser session lasts up to 24 hours. Both are held in server memory, so a restart or redeploy requires linking again; the browser also forgets its session when its tab closes. Never share a linking code. If District has not published theatres or screens, the site labels fallback suggestions as unverified. Like Telegram watches, saved alerts need persistent storage to survive a Render redeploy.
+
+Browser push subscriptions and email preferences are stored against the linked Telegram chat ID, separately from the temporary website session. A service worker receives browser push messages in the background, so closing the tab or letting the 24-hour website session expire does not remove the subscription. The browser/operating system can still suppress notifications if the user blocks permission, enables a focus/do-not-disturb mode, or fully disables the browser's background activity.
 
 ## Telegram watch management
 

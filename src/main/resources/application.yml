@@ -67,3 +67,8 @@ notifications:
     enabled: ${EMAIL_NOTIFY_ENABLED:false}
     to: ${EMAIL_NOTIFY_TO:}
     from: ${EMAIL_NOTIFY_FROM:noreply@districtmonitor.local}
+  # Optional browser push. Generate one stable VAPID key pair and keep it in Render secrets.
+  push:
+    public-key: ${PUSH_VAPID_PUBLIC_KEY:}
+    private-key: ${PUSH_VAPID_PRIVATE_KEY:}
+    subject: ${PUSH_VAPID_SUBJECT:mailto:admin@example.com}
