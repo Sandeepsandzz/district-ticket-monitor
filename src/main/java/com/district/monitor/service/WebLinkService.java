@@ -6,6 +6,7 @@ import com.district.monitor.repository.WebSessionRepository;
 import com.district.monitor.repository.WebUserAccountRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
@@ -63,6 +64,7 @@ public class WebLinkService {
         return code;
     }
 
+    @Transactional
     public synchronized String exchange(String code) {
         cleanup();
         Credential credential = code == null ? null : codes.remove(code);
@@ -82,11 +84,13 @@ public class WebLinkService {
         return token;
     }
 
+    @Transactional
     public String resolve(String token) {
         Profile profile = resolveProfile(token);
         return profile == null ? null : profile.chatId();
     }
 
+    @Transactional
     public Profile resolveProfile(String token) {
         if (token == null) return null;
         Credential credential = sessions.get(token);
@@ -112,6 +116,7 @@ public class WebLinkService {
         return new Profile(credential.chatId(), credential.displayName());
     }
 
+    @Transactional
     public void logout(String token) {
         if (token == null) return;
         sessions.remove(token);
