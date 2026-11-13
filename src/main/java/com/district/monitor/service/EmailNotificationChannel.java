@@ -81,6 +81,7 @@ public class EmailNotificationChannel implements NotificationChannel {
             mailSender.send(msg);
             log.info("Dispatched Email notification for watchId={} to {}", rule.getId(), recipient);
         } catch (Exception e) {
+            log.warn("Email delivery failed for watchId={} recipient={}: {}", rule.getId(), maskEmail(recipient), e.getMessage(), e);
             throw new IllegalStateException("Email request failed");
         }
     }
@@ -95,6 +96,7 @@ public class EmailNotificationChannel implements NotificationChannel {
         String recipient = settings.findByChatId(chatId).map(UserNotificationSettings::getEmailAddress).orElse(toAddress);
         if (!validEmail(recipient)) throw new IllegalStateException("No valid email recipient is configured");
         try {
+            log.info("Starting email test for chatId={} recipient={}", chatId, maskEmail(recipient));
             SimpleMailMessage msg = new SimpleMailMessage();
             msg.setFrom(fromAddress);
             msg.setTo(recipient);
