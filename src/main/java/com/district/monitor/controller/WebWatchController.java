@@ -129,23 +129,28 @@ public class WebWatchController {
     }
 
     @PostMapping("/notification-test/{channel}")
-    public Map<String, Object> notificationTest(@RequestHeader(value = "Authorization", required = false) String authorization,
-                                                @PathVariable String channel) {
+    public ResponseEntity<Map<String, Object>> notificationTest(@RequestHeader(value = "Authorization", required = false) String authorization,
+                                                                @PathVariable String channel) {
         String chatId = chat(authorization);
         try {
             if ("push".equalsIgnoreCase(channel)) {
                 if (pushChannel == null) throw new IllegalStateException("Browser push is unavailable");
                 pushChannel.sendTest(chatId);
-                return Map.of("sent", true, "channel", "push", "message", "Test push sent");
+                return ResponseEntity.ok(Map.of("sent", true, "channel", "push", "message", "Test push sent"));
             }
             if ("email".equalsIgnoreCase(channel)) {
                 if (emailChannel == null) throw new IllegalStateException("Email is unavailable");
                 emailChannel.sendTest(chatId);
-                return Map.of("sent", true, "channel", "email", "message", "Test email sent");
+                return ResponseEntity.ok(Map.of("sent", true, "channel", "email", "message", "Test email sent"));
             }
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown notification channel");
         } catch (IllegalStateException e) {
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, e.getMessage());
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of(
+                    "sent", false,
+                    "status", 503,
+                    "error", "Notification delivery unavailable",
+                    "message", e.getMessage() == null ? "Notification delivery failed" : e.getMessage()
+            ));
         }
     }
 

@@ -86,8 +86,14 @@ public class EmailNotificationChannel implements NotificationChannel {
     }
 
     public void sendTest(String chatId) {
-        if (!canSend(chatId)) throw new IllegalStateException("Email is not enabled for this account");
+        if (!enabled) throw new IllegalStateException("Email channel is disabled on the server; set EMAIL_NOTIFY_ENABLED=true and redeploy");
+        if (mailSender == null) throw new IllegalStateException("Email sender is unavailable; verify the mail dependency and deployment");
+        UserNotificationSettings preference = settings.findByChatId(chatId).orElse(null);
+        if (preference != null && (!preference.isEmailEnabled() || !validEmail(preference.getEmailAddress()))) {
+            throw new IllegalStateException("Email is not enabled for this account; enable Email backup and save settings");
+        }
         String recipient = settings.findByChatId(chatId).map(UserNotificationSettings::getEmailAddress).orElse(toAddress);
+        if (!validEmail(recipient)) throw new IllegalStateException("No valid email recipient is configured");
         try {
             SimpleMailMessage msg = new SimpleMailMessage();
             msg.setFrom(fromAddress);
@@ -97,11 +103,18 @@ public class EmailNotificationChannel implements NotificationChannel {
             mailSender.send(msg);
             log.info("Dispatched email test for chatId={} to {}", chatId, recipient);
         } catch (Exception e) {
-            throw new IllegalStateException("Email test failed");
+            log.warn("Email test failed for chatId={} recipient={}: {}", chatId, maskEmail(recipient), e.getMessage(), e);
+            throw new IllegalStateException("Email test failed; check the Render SMTP settings and app password");
         }
     }
 
     private boolean validEmail(String value) {
         return value != null && value.length() <= 320 && value.matches("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
+    }
+
+    private String maskEmail(String value) {
+        if (!validEmail(value)) return "<invalid>";
+        int at = value.indexOf('@');
+        return value.charAt(0) + "***" + value.substring(at);
     }
 }
