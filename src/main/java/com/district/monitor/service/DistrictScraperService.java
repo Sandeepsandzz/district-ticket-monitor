@@ -73,6 +73,11 @@ public class DistrictScraperService {
     private volatile Instant lastFailureAt;
     private volatile int consecutiveFailures;
     private volatile String lastFailureMessage;
+    private volatile Instant lastRequestAt;
+    private volatile long lastRequestDurationMs;
+    private volatile long totalRequests;
+    private volatile long failedRequests;
+    private volatile long totalLatencyMs;
 
     public record ScreeningRecord(
             String title,
@@ -108,7 +113,9 @@ public class DistrictScraperService {
 
     public ScraperHealth getHealth() {
         String status = consecutiveFailures == 0 ? "UP" : (lastSuccessAt == null ? "DOWN" : "DEGRADED");
-        return new ScraperHealth(status, lastSuccessAt, lastFailureAt, consecutiveFailures, lastFailureMessage);
+        long average = totalRequests == 0 ? 0 : totalLatencyMs / totalRequests;
+        return new ScraperHealth(status, lastSuccessAt, lastFailureAt, consecutiveFailures, lastFailureMessage,
+                lastRequestAt, lastRequestDurationMs, totalRequests, failedRequests, average);
     }
 
     /**
@@ -992,17 +999,21 @@ public class DistrictScraperService {
     protected Document fetchDocument(String url, int timeoutMillis, String operation) throws IOException {
         IOException lastFailure = null;
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            long started = System.nanoTime();
+            lastRequestAt = Instant.now();
             try {
                 Document document = Jsoup.connect(url)
                         .userAgent(randomUserAgent())
                         .cookie("city", "vizag")
                         .timeout(timeoutMillis)
                         .get();
+                recordRequest(System.nanoTime() - started, false);
                 lastSuccessAt = java.time.Instant.now();
                 consecutiveFailures = 0;
                 lastFailureMessage = null;
                 return document;
             } catch (IOException e) {
+                recordRequest(System.nanoTime() - started, true);
                 lastFailure = e;
                 if (attempt < maxAttempts) {
                     log.warn("District {} attempt {}/{} failed: {}. Retrying...", operation, attempt, maxAttempts, e.getMessage());
@@ -1016,6 +1027,14 @@ public class DistrictScraperService {
         lastFailureMessage = lastFailure == null ? "Unknown scraper failure" : lastFailure.getMessage();
         log.error("District {} failed after {} attempt(s): {}", operation, maxAttempts, lastFailureMessage);
         throw lastFailure == null ? new IOException("District scraper failed") : lastFailure;
+    }
+
+    private synchronized void recordRequest(long durationNanos, boolean failed) {
+        long durationMs = Math.max(0, durationNanos / 1_000_000);
+        lastRequestDurationMs = durationMs;
+        totalRequests++;
+        totalLatencyMs += durationMs;
+        if (failed) failedRequests++;
     }
 
     private void sleepBeforeRetry(int attempt) {

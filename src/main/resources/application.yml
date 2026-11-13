@@ -43,6 +43,10 @@ telegram:
 api:
   admin-token: ${API_ADMIN_TOKEN:}
 
+web:
+  # Persistent Telegram-linked browser sessions; raw tokens are never stored.
+  session-days: ${WEB_SESSION_DAYS:30}
+
 notifications:
   # Optional Meta test account; scoped to the configured Telegram chat.
   whatsapp:

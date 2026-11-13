@@ -10,6 +10,7 @@ import com.district.monitor.repository.UserNotificationSettingsRepository;
 import com.district.monitor.repository.WebPushSubscriptionRepository;
 import com.district.monitor.scheduler.TicketWatchScheduler;
 import com.district.monitor.service.DistrictScraperService;
+import com.district.monitor.service.EmailNotificationChannel;
 import com.district.monitor.service.TelegramCommandService;
 import com.district.monitor.service.WebLinkService;
 import com.district.monitor.service.WebPushNotificationChannel;
@@ -38,6 +39,7 @@ public class WebWatchController {
     private final UserNotificationSettingsRepository notificationSettings;
     private final WebPushSubscriptionRepository pushSubscriptions;
     private final WebPushNotificationChannel pushChannel;
+    private final EmailNotificationChannel emailChannel;
 
     public record LinkRequest(String code) {}
     public record WatchRequest(String movieName, String movieUrl, String theatreName, String screen, String date, Boolean repeatAlerts) {}
@@ -61,7 +63,7 @@ public class WebWatchController {
     public WebWatchController(WebLinkService links, WatchRuleRepository repository, DistrictScraperService scraper,
                               TelegramCommandService telegram, TicketWatchScheduler scheduler,
                               AlertEventRepository events, AlertDeliveryRepository deliveries) {
-        this(links, repository, scraper, telegram, scheduler, events, deliveries, null, null, null);
+        this(links, repository, scraper, telegram, scheduler, events, deliveries, null, null, null, null);
     }
 
     @Autowired
@@ -70,7 +72,8 @@ public class WebWatchController {
                               AlertEventRepository events, AlertDeliveryRepository deliveries,
                               UserNotificationSettingsRepository notificationSettings,
                               WebPushSubscriptionRepository pushSubscriptions,
-                              WebPushNotificationChannel pushChannel) {
+                              WebPushNotificationChannel pushChannel,
+                              EmailNotificationChannel emailChannel) {
         this.links = links;
         this.repository = repository;
         this.scraper = scraper;
@@ -81,6 +84,7 @@ public class WebWatchController {
         this.notificationSettings = notificationSettings;
         this.pushSubscriptions = pushSubscriptions;
         this.pushChannel = pushChannel;
+        this.emailChannel = emailChannel;
     }
 
     @PostMapping("/link")
@@ -120,7 +124,29 @@ public class WebWatchController {
         response.put("pushEnabled", value != null && value.isPushEnabled());
         response.put("pushConfigured", pushChannel != null && pushChannel.isConfigured());
         response.put("pushSubscriptions", pushSubscriptions == null ? 0 : pushSubscriptions.findByChatId(chatId).size());
+        response.put("emailConfigured", emailChannel != null && emailChannel.isEnabled());
         return response;
+    }
+
+    @PostMapping("/notification-test/{channel}")
+    public Map<String, Object> notificationTest(@RequestHeader(value = "Authorization", required = false) String authorization,
+                                                @PathVariable String channel) {
+        String chatId = chat(authorization);
+        try {
+            if ("push".equalsIgnoreCase(channel)) {
+                if (pushChannel == null) throw new IllegalStateException("Browser push is unavailable");
+                pushChannel.sendTest(chatId);
+                return Map.of("sent", true, "channel", "push", "message", "Test push sent");
+            }
+            if ("email".equalsIgnoreCase(channel)) {
+                if (emailChannel == null) throw new IllegalStateException("Email is unavailable");
+                emailChannel.sendTest(chatId);
+                return Map.of("sent", true, "channel", "email", "message", "Test email sent");
+            }
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown notification channel");
+        } catch (IllegalStateException e) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, e.getMessage());
+        }
     }
 
     @PutMapping("/notification-preferences")

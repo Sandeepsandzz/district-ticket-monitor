@@ -70,6 +70,9 @@ public class WatchRule {
     // Null for existing rows means the original repeating behavior.
     @Column private Boolean repeatAlerts;
 
+    /** Hash of the last availability snapshot that generated an alert. */
+    @Column(length = 64) private String lastAvailabilityFingerprint;
+
     // Nullable keeps Hibernate's update path safe for existing PostgreSQL rows.
     @Column
     private Boolean archived = false;
@@ -189,6 +192,8 @@ public class WatchRule {
     public void setLastCheckMessage(String value) { lastCheckMessage = value; }
     public boolean isRepeatAlerts() { return repeatAlerts == null || repeatAlerts; }
     public void setRepeatAlerts(boolean value) { repeatAlerts = value; }
+    public String getLastAvailabilityFingerprint() { return lastAvailabilityFingerprint; }
+    public void setLastAvailabilityFingerprint(String value) { lastAvailabilityFingerprint = value; }
     public boolean isArchived() { return Boolean.TRUE.equals(archived); }
     public void setArchived(boolean value) { archived = value; }
     public Instant getArchivedAt() { return archivedAt; }

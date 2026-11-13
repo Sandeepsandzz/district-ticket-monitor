@@ -1,7 +1,16 @@
 package com.district.monitor.service;
 
+import com.district.monitor.entity.WebSession;
+import com.district.monitor.entity.WebUserAccount;
+import com.district.monitor.repository.WebSessionRepository;
+import com.district.monitor.repository.WebUserAccountRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Duration;
@@ -10,18 +19,36 @@ import java.util.Base64;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-/** Short-lived credentials are deliberately kept in memory, never in the database or logs. */
+/** Telegram linking codes are short-lived; authenticated web sessions are persisted as hashes. */
 @Service
 public class WebLinkService {
     public record Profile(String chatId, String displayName) {}
     private record Credential(String chatId, String displayName, Instant expiresAt) {}
     private final SecureRandom random = new SecureRandom();
     private final Clock clock;
+    private final WebUserAccountRepository accounts;
+    private final WebSessionRepository sessionRepository;
+    private final int sessionDays;
     private final Map<String, Credential> codes = new ConcurrentHashMap<>();
     private final Map<String, Credential> sessions = new ConcurrentHashMap<>();
 
-    public WebLinkService() { this(Clock.systemUTC()); }
-    WebLinkService(Clock clock) { this.clock = clock; }
+    public WebLinkService() { this(Clock.systemUTC(), null, null, 30); }
+
+    @Autowired
+    public WebLinkService(WebUserAccountRepository accounts, WebSessionRepository sessionRepository,
+                          @Value("${web.session-days:30}") int sessionDays) {
+        this(Clock.systemUTC(), accounts, sessionRepository, Math.max(1, sessionDays));
+    }
+
+    WebLinkService(Clock clock) { this(clock, null, null, 1); }
+
+    private WebLinkService(Clock clock, WebUserAccountRepository accounts,
+                           WebSessionRepository sessionRepository, int sessionDays) {
+        this.clock = clock;
+        this.accounts = accounts;
+        this.sessionRepository = sessionRepository;
+        this.sessionDays = sessionDays;
+    }
 
     public synchronized String issueCode(String chatId) {
         return issueCode(chatId, "Movie fan");
@@ -41,7 +68,17 @@ public class WebLinkService {
         Credential credential = code == null ? null : codes.remove(code);
         if (credential == null || !credential.expiresAt().isAfter(clock.instant())) return null;
         String token = randomToken(32);
-        sessions.put(token, new Credential(credential.chatId(), credential.displayName(), clock.instant().plus(Duration.ofHours(24))));
+        Instant expires = clock.instant().plus(accounts == null ? Duration.ofHours(24) : Duration.ofDays(sessionDays));
+        if (accounts == null || sessionRepository == null) {
+            sessions.put(token, new Credential(credential.chatId(), credential.displayName(), expires));
+        } else {
+            WebUserAccount account = accounts.findByChatId(credential.chatId()).orElseGet(() -> new WebUserAccount(credential.chatId(), credential.displayName()));
+            account.setDisplayName(credential.displayName());
+            account.setEnabled(true);
+            account.touch(clock.instant());
+            accounts.save(account);
+            sessionRepository.save(new WebSession(credential.chatId(), hash(token), expires));
+        }
         return token;
     }
 
@@ -53,6 +90,20 @@ public class WebLinkService {
     public Profile resolveProfile(String token) {
         if (token == null) return null;
         Credential credential = sessions.get(token);
+        if (accounts != null && sessionRepository != null) {
+            WebSession session = sessionRepository.findByTokenHash(hash(token)).orElse(null);
+            if (session == null || !session.getExpiresAt().isAfter(clock.instant())) {
+                if (session != null) sessionRepository.delete(session);
+                return null;
+            }
+            WebUserAccount account = accounts.findByChatId(session.getChatId()).orElse(null);
+            if (account == null || !account.isEnabled()) return null;
+            if (session.getLastSeenAt() == null || session.getLastSeenAt().plusSeconds(300).isBefore(clock.instant())) {
+                session.touch(clock.instant()); sessionRepository.save(session);
+                account.touch(clock.instant()); accounts.save(account);
+            }
+            return new Profile(account.getChatId(), account.getDisplayName());
+        }
         if (credential == null) return null;
         if (!credential.expiresAt().isAfter(clock.instant())) {
             sessions.remove(token, credential);
@@ -61,7 +112,11 @@ public class WebLinkService {
         return new Profile(credential.chatId(), credential.displayName());
     }
 
-    public void logout(String token) { if (token != null) sessions.remove(token); }
+    public void logout(String token) {
+        if (token == null) return;
+        sessions.remove(token);
+        if (sessionRepository != null) sessionRepository.deleteByTokenHash(hash(token));
+    }
 
     private void cleanup() {
         Instant now = clock.instant();
@@ -73,5 +128,16 @@ public class WebLinkService {
         byte[] value = new byte[bytes];
         random.nextBytes(value);
         return Base64.getUrlEncoder().withoutPadding().encodeToString(value);
+    }
+
+    private String hash(String value) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));
+            StringBuilder result = new StringBuilder(64);
+            for (byte item : digest) result.append(String.format("%02x", item));
+            return result.toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 is unavailable", e);
+        }
     }
 }

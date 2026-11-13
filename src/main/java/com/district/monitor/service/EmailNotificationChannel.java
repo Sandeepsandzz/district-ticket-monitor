@@ -49,6 +49,14 @@ public class EmailNotificationChannel implements NotificationChannel {
         return enabled && mailSender != null;
     }
 
+    public boolean isConfigured() { return isEnabled() && validEmail(toAddress); }
+
+    public boolean canSend(String chatId) {
+        if (!isEnabled()) return false;
+        return settings.findByChatId(chatId).map(s -> s.isEmailEnabled() && validEmail(s.getEmailAddress()))
+                .orElse(validEmail(toAddress));
+    }
+
     @Override
     public boolean appliesTo(WatchRule rule) {
         if (!isEnabled()) return false;
@@ -74,6 +82,22 @@ public class EmailNotificationChannel implements NotificationChannel {
             log.info("Dispatched Email notification for watchId={} to {}", rule.getId(), recipient);
         } catch (Exception e) {
             throw new IllegalStateException("Email request failed");
+        }
+    }
+
+    public void sendTest(String chatId) {
+        if (!canSend(chatId)) throw new IllegalStateException("Email is not enabled for this account");
+        String recipient = settings.findByChatId(chatId).map(UserNotificationSettings::getEmailAddress).orElse(toAddress);
+        try {
+            SimpleMailMessage msg = new SimpleMailMessage();
+            msg.setFrom(fromAddress);
+            msg.setTo(recipient);
+            msg.setSubject("District Monitor email test");
+            msg.setText("Email alerts are configured correctly for your District Ticket Monitor account.");
+            mailSender.send(msg);
+            log.info("Dispatched email test for chatId={} to {}", chatId, recipient);
+        } catch (Exception e) {
+            throw new IllegalStateException("Email test failed");
         }
     }
 

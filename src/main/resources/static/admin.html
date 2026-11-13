@@ -76,7 +76,7 @@
       $('notifications').textContent = summary.notificationsSent ?? 0;
       $('scraper').textContent = summary.scraper.status;
       const s = summary.scraper;
-      $('scraperDetails').innerHTML = `<span class="pill ${s.status === 'UP' ? 'ok' : 'paused'}">${esc(s.status)}</span> &nbsp; Last success: ${esc(date(s.lastSuccessAt))} &nbsp; Last failure: ${esc(date(s.lastFailureAt))} &nbsp; Consecutive failures: ${esc(s.consecutiveFailures)}${s.lastFailureMessage ? ' &nbsp; Error: ' + esc(s.lastFailureMessage) : ''}`;
+      $('scraperDetails').innerHTML = `<span class="pill ${s.status === 'UP' ? 'ok' : 'paused'}">${esc(s.status)}</span> &nbsp; Last success: ${esc(date(s.lastSuccessAt))} &nbsp; Last failure: ${esc(date(s.lastFailureAt))} &nbsp; Consecutive failures: ${esc(s.consecutiveFailures)}<br>Requests: ${esc(s.totalRequests ?? 0)} · Failed attempts: ${esc(s.failedRequests ?? 0)} · Last latency: ${esc(s.lastRequestDurationMs ?? 0)} ms · Average latency: ${esc(s.averageLatencyMs ?? 0)} ms${s.lastFailureMessage ? ' &nbsp; Error: ' + esc(s.lastFailureMessage) : ''}`;
       $('watches').innerHTML = watches.length ? watches.map(row).join('') : '<tr><td colspan="7" class="muted">No watches found.</td></tr>';
       const analytics = await api('/api/admin/analytics');
       $('events').textContent = analytics.events;

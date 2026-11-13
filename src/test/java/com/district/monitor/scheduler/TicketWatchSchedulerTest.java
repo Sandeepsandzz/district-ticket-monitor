@@ -40,4 +40,19 @@ class TicketWatchSchedulerTest {
         verify(dispatcher,never()).queueAlert(any(),any(),any(),any(),any());
         assertEquals("NOTIFIED_ONCE",watch.getLastCheckStatus());
     }
+
+    @Test void unchangedAvailabilityDoesNotGenerateDuplicateAlerts() {
+        var repo=mock(WatchRuleRepository.class); var scraper=mock(DistrictScraperService.class); var dispatcher=mock(MultiChannelNotificationDispatcher.class);
+        var watch=rule(1,"2099-01-01");
+        var available=new AvailabilityCheckResult(true,List.of("AAA"),List.of("Screen 7"),List.of("10:00 AM"),"2099-01-01","ANY","ANY","booking","AVAILABLE","Matching tickets found");
+        when(repo.findByAcknowledgedFalse()).thenReturn(List.of(watch));
+        when(scraper.checkWatchRule(any(),anyMap())).thenReturn(available);
+        when(dispatcher.queueAlert(any(),anyString(),anyString(),anyString(),anyString())).thenReturn(true);
+        when(dispatcher.retryPending(watch)).thenReturn(1);
+        var scheduler=new TicketWatchScheduler(repo,scraper,dispatcher,3,15);
+        scheduler.pollActiveWatches();
+        scheduler.pollActiveWatches();
+        verify(dispatcher,times(1)).queueAlert(any(),anyString(),anyString(),anyString(),anyString());
+        assertEquals("UNCHANGED",watch.getLastCheckStatus());
+    }
 }

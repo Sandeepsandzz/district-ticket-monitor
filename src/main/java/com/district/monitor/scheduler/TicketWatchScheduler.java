@@ -16,6 +16,11 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -126,9 +131,23 @@ public class TicketWatchScheduler {
                 repository.save(rule);
             }
 
+            String fingerprint = result.isAvailable() ? availabilityFingerprint(result) : null;
+            boolean changed = fingerprint != null && !fingerprint.equals(rule.getLastAvailabilityFingerprint());
+            if (result.isAvailable() && !changed) {
+                rule.setLastCheckStatus("UNCHANGED");
+                rule.setLastCheckMessage("Matching availability is unchanged; no duplicate alert sent");
+                repository.save(rule);
+                continue;
+            }
+            if (!result.isAvailable() && ("NO_MATCH".equals(result.checkStatus())
+                    || "UNKNOWN".equals(result.checkStatus()) || "ERROR".equals(result.checkStatus()))) {
+                rule.setLastAvailabilityFingerprint(null);
+                repository.save(rule);
+            }
+
             boolean cooldown = rule.getLastAlertedAt() != null
                     && now.isBefore(rule.getLastAlertedAt().plus(repeatIntervalMinutes, ChronoUnit.MINUTES));
-            if (result.isAvailable() && !pending && !cooldown && (rule.isRepeatAlerts() || rule.getAlertCount() == 0)) {
+            if (result.isAvailable() && changed && !pending && !cooldown && (rule.isRepeatAlerts() || rule.getAlertCount() == 0)) {
                 int currentAttempt = rule.getAlertCount() + 1;
                 String theatresStr = result.matchedTheatres().isEmpty()
                         ? (rule.getTheatreName() != null ? rule.getTheatreName() : "Open in City")
@@ -170,7 +189,12 @@ public class TicketWatchScheduler {
                                 rule.getTargetDate());
 
                 if (notificationDispatcher.queueAlert(rule, htmlMsg, plainMsg, result.bookingUrl(), showtimesStr)) {
-                    notificationsSent += notificationDispatcher.retryPending(rule);
+                    int accepted = notificationDispatcher.retryPending(rule);
+                    if (accepted > 0) {
+                        rule.setLastAvailabilityFingerprint(fingerprint);
+                        repository.save(rule);
+                    }
+                    notificationsSent += accepted;
                 } else {
                     rule.setLastCheckStatus("DELIVERY_UNAVAILABLE");
                     rule.setLastCheckMessage("Tickets found, but no notification channel is enabled");
@@ -202,4 +226,33 @@ public class TicketWatchScheduler {
                 .replace("\"", "&quot;")
                 .replace("'", "&#39;");
     }
+
+    private String availabilityFingerprint(AvailabilityCheckResult result) {
+        List<String> values = new ArrayList<>();
+        values.add(safe(result.matchedDate()));
+        values.addAll(sorted(result.matchedTheatres()));
+        values.addAll(sorted(result.matchedScreens()));
+        values.addAll(sorted(result.matchedShowtimes()));
+        values.add(safe(result.bookingUrl()));
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(String.join("|", values).getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder(64);
+            for (byte item : digest) hex.append(String.format("%02x", item));
+            return hex.toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 is unavailable", e);
+        }
+    }
+
+    private List<String> sorted(List<String> values) {
+        if (values == null) return List.of();
+        List<String> copy = values.stream().filter(java.util.Objects::nonNull).map(String::trim)
+                .filter(value -> !value.isBlank()).distinct().toList();
+        List<String> sorted = new ArrayList<>(copy);
+        Collections.sort(sorted, String.CASE_INSENSITIVE_ORDER);
+        return sorted;
+    }
+
+    private String safe(String value) { return value == null ? "" : value.trim(); }
 }

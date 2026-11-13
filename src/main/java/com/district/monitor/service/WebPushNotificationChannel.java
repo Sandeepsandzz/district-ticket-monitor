@@ -49,6 +49,10 @@ public class WebPushNotificationChannel implements NotificationChannel {
     public String publicKey() { return publicKey; }
     public List<WebPushSubscription> subscriptionsFor(String chatId) { return subscriptions.findByChatId(chatId); }
 
+    public boolean canSend(String chatId) { return isConfigured()
+            && settings.findByChatId(chatId).map(UserNotificationSettings::isPushEnabled).orElse(false)
+            && !subscriptions.findByChatId(chatId).isEmpty(); }
+
     @Override
     public boolean appliesTo(WatchRule rule) {
         if (!isConfigured()) return false;
@@ -92,5 +96,37 @@ public class WebPushNotificationChannel implements NotificationChannel {
             }
         }
         if (delivered == 0) throw new IllegalStateException("No browser push subscription accepted the alert");
+    }
+
+    public void sendTest(String chatId) {
+        if (!canSend(chatId)) throw new IllegalStateException("Browser push is not enabled for this account");
+        sendPayload(chatId, "District Monitor push test", "Browser push alerts are configured correctly.", "/");
+    }
+
+    private void sendPayload(String chatId, String title, String body, String url) {
+        String payload;
+        try {
+            payload = mapper.writeValueAsString(Map.of("title", title, "body", body, "url", url == null ? "/" : url));
+        } catch (Exception e) {
+            throw new IllegalStateException("Browser push payload failed", e);
+        }
+        int delivered = 0;
+        for (WebPushSubscription saved : subscriptions.findByChatId(chatId)) {
+            try {
+                Subscription subscription = new Subscription();
+                subscription.endpoint = saved.getEndpoint();
+                subscription.keys = new Subscription.Keys();
+                subscription.keys.p256dh = saved.getP256dh();
+                subscription.keys.auth = saved.getAuth();
+                HttpResponse response = new PushService(publicKey, privateKey, subject).send(new Notification(subscription, payload));
+                int status = response.getStatusLine().getStatusCode();
+                if (status == 404 || status == 410) subscriptions.delete(saved);
+                else if (status >= 200 && status < 300) delivered++;
+                else throw new IllegalStateException("Browser push service returned HTTP " + status);
+            } catch (Exception e) {
+                throw new IllegalStateException("Browser push request failed", e);
+            }
+        }
+        if (delivered == 0) throw new IllegalStateException("No browser push subscription accepted the test");
     }
 }
